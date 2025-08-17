@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -30,24 +30,39 @@ export default function BatchSelectionDialog({
 }) {
   const { showError, showSuccess } = useToast();
   const [selectedAllocations, setSelectedAllocations] = useState([]);
+  const hasInitialized = useRef(false);
+  const lastProductId = useRef(null);
 
-  // Initialize once when dialog opens
+  // Initialize only once per product or when dialog first opens with new product
   useEffect(() => {
-    if (isOpen) {
-      setSelectedAllocations(currentAllocations || []);
+    if (isOpen && product?.order_item_id) {
+      // Only reinitialize if it's a different product or first time opening
+      if (!hasInitialized.current || lastProductId.current !== product.order_item_id) {
+        setSelectedAllocations(currentAllocations || []);
+        hasInitialized.current = true;
+        lastProductId.current = product.order_item_id;
+      }
     }
-  }, [isOpen]); // only when open changes
+  }, [isOpen, product?.order_item_id]); // Removed currentAllocations from dependencies
+
+  // Reset initialization flag when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      hasInitialized.current = false;
+      lastProductId.current = null;
+    }
+  }, [isOpen]);
 
   const totalSelectedQuantity = selectedAllocations.reduce(
     (sum, a) => sum + (parseFloat(a.quantity) || 0),
     0
   );
-  const remaining = Math.max(0, (product.quantity || 0) - totalSelectedQuantity);
+  const remaining = Math.max(0, (product?.quantity || 0) - totalSelectedQuantity);
   const isFully = remaining < 0.0005;
 
   const updateBatchQty = useCallback(
     (batchId, qty) => {
-      const batchInfo = availableBatches.find(b => b.batch === batchId);
+      const batchInfo = availableBatches?.find(b => b.batch === batchId);
       if (!batchInfo) return;
       const clamped = Math.min(Math.max(qty, 0), parseFloat(batchInfo.totalQuantity));
       setSelectedAllocations(prev => {
@@ -72,18 +87,21 @@ export default function BatchSelectionDialog({
     [availableBatches]
   );
 
-  const selectAllForBatch = batchId => {
-    const batchInfo = availableBatches.find(b => b.batch === batchId);
+  const selectAllForBatch = useCallback((batchId) => {
+    const batchInfo = availableBatches?.find(b => b.batch === batchId);
     if (!batchInfo) return;
     const maxAvail = parseFloat(batchInfo.totalQuantity);
-    updateBatchQty(batchId, Math.min(maxAvail, remaining + (selectedAllocations.find(a => a.batch === batchId)?.quantity || 0)));
-  };
+    const currentlySelected = selectedAllocations.find(a => a.batch === batchId)?.quantity || 0;
+    updateBatchQty(batchId, Math.min(maxAvail, remaining + currentlySelected));
+  }, [availableBatches, selectedAllocations, remaining, updateBatchQty]);
 
-  const clearBatch = batchId => {
+  const clearBatch = useCallback((batchId) => {
     setSelectedAllocations(prev => prev.filter(a => a.batch !== batchId));
-  };
+  }, []);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
+    if (!product) return;
+
     if (totalSelectedQuantity + 0.0005 < (product.quantity || 0)) {
       showError(
         `Insufficient allocation. Required: ${(product.quantity || 0).toFixed(3)} ${product.unit}, selected: ${totalSelectedQuantity.toFixed(3)} ${product.unit}`
@@ -99,11 +117,26 @@ export default function BatchSelectionDialog({
     });
 
     showSuccess('Batches selected');
+    
+    // Reset state after successful save
+    hasInitialized.current = false;
+    lastProductId.current = null;
+    
     onClose();
-  };
+  }, [product, selectedAllocations, totalSelectedQuantity, onBatchSelection, showSuccess, showError, onClose]);
+
+  const handleCancel = useCallback(() => {
+    // Reset state when canceling
+    hasInitialized.current = false;
+    lastProductId.current = null;
+    onClose();
+  }, [onClose]);
+
+  // Don't render if no product
+  if (!product) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+    <Dialog open={isOpen} onOpenChange={open => !open && handleCancel()}>
       <DialogContent className="max-w-4xl w-[90vw] max-h-[80vh] flex flex-col">
         <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="flex items-center gap-3 text-xl">
@@ -141,7 +174,7 @@ export default function BatchSelectionDialog({
 
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Available Batches</h3>
-            {availableBatches.length === 0 ? (
+            {!availableBatches || availableBatches.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 No batches available
               </div>
@@ -194,10 +227,10 @@ export default function BatchSelectionDialog({
         </div>
 
         <div className="flex justify-end items-center p-6 pt-4 border-t bg-gray-50">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={handleCancel}>Cancel</Button>
           <Button
             onClick={handleSave}
-            disabled={totalSelectedQuantity + 0.0005 < (product.quantity || 0)}
+            disabled={totalSelectedQuantity + 0.0005 < (product?.quantity || 0)}
             className="ml-3 bg-blue-600 hover:bg-blue-700 text-white"
           >
             Save Selection

@@ -5,7 +5,9 @@ import {
   PlusIcon,
   UserGroupIcon,
   FunnelIcon,
-  DocumentTextIcon
+  DocumentTextIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline';
 import AddSupplierDialog from '../../components/suppliers/AddSupplierDialog';
 import SupplierCard from '../../components/suppliers/SupplierCard';
@@ -22,6 +24,8 @@ const SuppliersPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const suppliersPerPage = 100;
 
   useEffect(() => {
     fetchSuppliers();
@@ -34,7 +38,8 @@ const SuppliersPage = () => {
   const fetchSuppliers = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/suppliers');
+      // Fetch all suppliers without pagination limit
+      const response = await fetch('http://localhost:5000/api/suppliers?limit=1000');
       const data = await response.json();
       if (data.success) {
         setSuppliers(data.suppliers || []);
@@ -275,16 +280,64 @@ const SuppliersPage = () => {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredSuppliers.map((supplier) => (
-              <SupplierCard
-                key={supplier.id}
-                supplier={supplier}
-                onEdit={handleEditSupplier}
-                onSupplierUpdated={handleSupplierUpdated}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredSuppliers.slice((currentPage - 1) * suppliersPerPage, currentPage * suppliersPerPage).map((supplier) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  onEdit={handleEditSupplier}
+                  onSupplierUpdated={handleSupplierUpdated}
+                />
+              ))}
+            </div>
+
+            {/* Pagination logic */}
+            {filteredSuppliers.length > suppliersPerPage && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{(currentPage - 1) * suppliersPerPage + 1}</span> to{' '}
+                    <span className="font-medium">
+                      {Math.min(currentPage * suppliersPerPage, filteredSuppliers.length)}
+                    </span>{' '}
+                    of <span className="font-medium">{filteredSuppliers.length}</span> suppliers
+                  </p>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className={`inline-flex items-center px-3 py-1 border rounded-md text-sm font-medium ${
+                        currentPage === 1
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                      }`}
+                    >
+                      <ChevronLeftIcon className="h-4 w-4 mr-1" />
+                      Previous
+                    </button>
+                    
+                    <span className="text-sm text-gray-700">
+                      Page {currentPage} of {Math.ceil(filteredSuppliers.length / suppliersPerPage)}
+                    </span>
+                    
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredSuppliers.length / suppliersPerPage)))}
+                      disabled={currentPage === Math.ceil(filteredSuppliers.length / suppliersPerPage)}
+                      className={`inline-flex items-center px-3 py-1 border rounded-md text-sm font-medium ${
+                        currentPage === Math.ceil(filteredSuppliers.length / suppliersPerPage)
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                      }`}
+                    >
+                      Next
+                      <ChevronRightIcon className="h-4 w-4 ml-1" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Add/Edit Supplier Dialog */}

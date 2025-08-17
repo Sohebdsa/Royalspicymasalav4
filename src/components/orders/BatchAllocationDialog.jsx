@@ -49,6 +49,25 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     currentAllocations: []
   });
 
+  // Memoize order prop to prevent unnecessary re-renders
+  const memoizedOrder = useMemo(() => order, [order?.id, JSON.stringify(order)]);
+  
+  // Preserve allocations between re-renders when the same order is opened
+  const prevOrderRef = useRef(memoizedOrder?.id);
+  const prevAllocationsRef = useRef(allocations);
+  
+  useEffect(() => {
+    if (memoizedOrder?.id && memoizedOrder.id === prevOrderRef.current) {
+      // Same order, restore previous allocations
+      setAllocations(prevAllocationsRef.current);
+    } else if (memoizedOrder?.id) {
+      // New order, reset allocations
+      prevOrderRef.current = memoizedOrder.id;
+      prevAllocationsRef.current = {};
+      setAllocations({});
+    }
+  }, [memoizedOrder?.id]);
+
   const formatCurrency = amt =>
     typeof amt !== 'number' || isNaN(amt) ? '₹0.00' : `₹${amt.toFixed(2)}`;
 
@@ -104,13 +123,13 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
 
   useEffect(() => {
     if (!isOpen) return;
-    if (order?.items?.length) {
-      setOrderData(order);
-    } else if (order?.id) {
+    if (memoizedOrder?.items?.length) {
+      setOrderData(memoizedOrder);
+    } else if (memoizedOrder?.id) {
       (async () => {
         setLoading(true);
         try {
-          const res = await fetch(`http://localhost:5000/api/orders/${order.id}`);
+          const res = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}`);
           const { success, data } = await res.json();
           if (success) setOrderData(data);
         } catch {
@@ -120,14 +139,14 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
         }
       })();
     }
-  }, [isOpen, order]);
+  }, [isOpen, memoizedOrder?.id]);
 
   useEffect(() => {
-    if (!isOpen || !order?.id) return;
+    if (!isOpen || !memoizedOrder?.id) return;
     let abort = false;
     (async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/orders/${order.id}/allocations`);
+        const res = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}/allocations`);
         const { success, data } = await res.json();
         if (success && Array.isArray(data) && !abort) {
           const grouped = {};
@@ -141,7 +160,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       } catch {}
     })();
     return () => { abort = true; };
-  }, [isOpen, order?.id]);
+  }, [isOpen, memoizedOrder?.id]);
 
   useEffect(() => {
     if (!isOpen || !itemsNeedingAllocation.length) return;
@@ -167,7 +186,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       setLoading(false);
     })();
     return () => { abort = true; };
-  }, [isOpen, debouncedCount]);
+  }, [isOpen, debouncedCount, memoizedOrder?.id]);
 
   const totalAllocatedForItem = useCallback(
     key => (allocations[key] || []).reduce((sum, a) => sum + parseFloat(a.quantity || 0), 0),
@@ -210,7 +229,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
         }
       }
       const flat = Object.values(allocations).flat();
-      const res = await fetch(`http://localhost:5000/api/orders/${order?.id}/allocations`, {
+      const res = await fetch(`http://localhost:5000/api/orders/${memoizedOrder?.id}/allocations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ allocations: flat })

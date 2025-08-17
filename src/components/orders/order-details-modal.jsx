@@ -26,7 +26,8 @@ import {
 import { useToast } from '../../contexts/ToastContext';
 import BatchAllocationDialog from './BatchAllocationDialog';
 import PaymentConfirmationDialog from './PaymentConfirmationDialog';
-import PaymentCollectionDialog from '../../pages/orders/customerhistory/customers-detailed-page/PaymentCollectionDialog';
+import OrderPaymentCollectionDialog from './OrderPaymentCollectionDialog';
+
 
 const formatCurrency = (amount) => {
   const numAmount = Number(amount) || 0;
@@ -37,6 +38,7 @@ const formatCurrency = (amount) => {
   }
   return `₹${formatted}`;
 };
+
 const formatDate = (dateStr) => {
   try {
     return new Intl.DateTimeFormat('en-IN', {
@@ -48,10 +50,12 @@ const formatDate = (dateStr) => {
     return dateStr;
   }
 };
+
 const formatQuantity = (qty) => {
   const numQty = parseFloat(qty);
   return isNaN(numQty) ? '0.000' : numQty.toFixed(3);
 };
+
 
 const calculateActualProfit = (items) => {
   let totalProfit = 0;
@@ -102,6 +106,7 @@ const calculateActualProfit = (items) => {
   return totalProfit;
 };
 
+
 const getStatusColor = (status) => {
   const colors = {
     pending: 'bg-yellow-100 text-yellow-700',
@@ -113,6 +118,7 @@ const getStatusColor = (status) => {
   };
   return colors[status] || 'bg-gray-100 text-gray-700';
 };
+
 
 export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
   const { toast } = useToast();
@@ -194,6 +200,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
   };
 
   const handleStatusUpdate = async () => {
+    const displayOrder = orderDetails || order;
     if (newStatus === displayOrder.status) return;
 
     // If moving to processing, require allocations first
@@ -202,20 +209,18 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
       return;
     }
 
+    // If moving to delivered, ONLY show payment confirmation dialog (no status update yet)
+    if (newStatus === 'delivered') {
+      setPaymentConfirmDialog({
+        isOpen: true,
+        orderData: displayOrder
+      });
+      return; // Don't update status here
+    }
+
+    // For other status changes, update immediately
     setIsLoading(true);
     try {
-      // If delivering, first deduct inventory based on saved allocations
-      if (newStatus === 'delivered') {
-        const deductRes = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/deliver-with-deduction`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ markDelivered: false })
-        });
-        const deductData = await deductRes.json();
-        if (!deductData.success) {
-          throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
-        }
-      }
       const response = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
         method: 'PUT',
         headers: {
@@ -231,7 +236,6 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
       const result = await response.json();
 
       if (result.success) {
-        // Update local order details
         setOrderDetails(prev => prev ? { ...prev, status: newStatus } : prev);
 
         toast({
@@ -240,15 +244,6 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
           type: 'success'
         });
 
-        // If status changed to delivered, show payment confirmation dialog
-        if (newStatus === 'delivered') {
-          setPaymentConfirmDialog({
-            isOpen: true,
-            orderData: { ...displayOrder, status: newStatus }
-          });
-        }
-
-        // Call parent refresh callback
         if (onRefresh) onRefresh();
       } else {
         throw new Error(result.message || 'Failed to update order status');
@@ -272,9 +267,6 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
   // Payment dialog handlers
   const handlePaymentConfirmYes = async () => {
     try {
-      // Close payment confirmation dialog
-      setPaymentConfirmDialog({ isOpen: false, orderData: null });
-
       // Get customer phone from order data
       const customerPhone = paymentConfirmDialog.orderData?.customer_phone;
 
@@ -314,10 +306,29 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         throw new Error('Failed to fetch customer details');
       }
 
+      // Debug: Log the customer data structure
+      console.log('🔥 [DEBUG] Customer data structure:', {
+        customer: customerResult.data.customer,
+        hasOutstandingBalance: 'outstanding_balance' in customerResult.data.customer,
+        outstandingBalance: customerResult.data.customer?.outstanding_balance,
+        hasTotalOutstanding: 'total_outstanding' in customerResult.data.customer,
+        totalOutstanding: customerResult.data.customer?.total_outstanding,
+        bills: customerResult.data.bills,
+        orderData: paymentConfirmDialog.orderData
+      });
+
       // Find the bill for this order
       const orderBill = customerResult.data.bills.find(bill =>
         bill.order_id === paymentConfirmDialog.orderData.id
       );
+
+      // Debug: Log the order data structure
+      console.log('🔥 [DEBUG] Order data structure:', {
+        order: paymentConfirmDialog.orderData,
+        hasTotalAmount: 'total_amount' in paymentConfirmDialog.orderData,
+        totalAmount: paymentConfirmDialog.orderData?.total_amount,
+        orderBill: orderBill
+      });
 
       // Open payment collection dialog
       setPaymentCollectionDialog({
@@ -337,22 +348,47 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
     }
   };
 
-  const handlePaymentConfirmNo = () => {
-    // Close payment confirmation dialog
-    setPaymentConfirmDialog({ isOpen: false, orderData: null });
-
-    // Show success message that amount will go to outstanding
-    toast({
-      title: 'Payment Status Updated',
-      description: 'Order amount has been added to customer\'s outstanding balance',
-      type: 'success'
-    });
+  const handlePaymentConfirmNo = async () => {
+    try {
+      const displayOrder = orderDetails || order;
+      const response = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'delivered',
+          changed_by: 'Admin User',
+          notes: 'Order delivered; amount added to outstanding'
+        })
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to mark order as delivered');
+      }
+      setOrderDetails(prev => prev ? { ...prev, status: 'delivered' } : prev);
+      setPaymentConfirmDialog({ isOpen: false, orderData: null });
+      toast({
+        title: 'Payment Status Updated',
+        description: 'Order marked as delivered and amount added to outstanding',
+        type: 'success'
+      });
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error('Error marking delivered:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to mark order as delivered. Please try again.',
+        type: 'error'
+      });
+    }
   };
 
   const handlePaymentSubmit = async (formData) => {
     try {
       setIsPaymentLoading(true);
 
+      // First record the payment
       const response = await fetch('http://localhost:5000/api/customers/payments', {
         method: 'POST',
         body: formData
@@ -363,11 +399,34 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         throw new Error(result.message || 'Failed to record payment');
       }
 
+      // Payment recorded successfully, now mark order as delivered
+      const displayOrder = orderDetails || order;
+      const orderResponse = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'delivered',
+          changed_by: 'Admin User',
+          notes: 'Order marked as delivered after payment confirmation'
+        })
+      });
+
+      const orderResult = await orderResponse.json();
+      if (!orderResult.success) {
+        throw new Error(orderResult.message || 'Failed to mark order as delivered');
+      }
+
       toast({
         title: 'Payment Recorded',
-        description: 'Payment has been successfully recorded',
+        description: 'Payment has been successfully recorded and order marked as delivered',
         type: 'success'
       });
+
+      // Update local order details
+      setOrderDetails(prev => prev ? { ...prev, status: 'delivered' } : prev);
+      setNewStatus('delivered'); // Update the select dropdown
 
       // Close payment collection dialog
       setPaymentCollectionDialog({
@@ -376,6 +435,12 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         bills: [],
         selectedBill: null
       });
+
+      // Close payment confirmation dialog if it's open
+      setPaymentConfirmDialog({ isOpen: false, orderData: null });
+
+      // Call parent refresh callback
+      if (onRefresh) onRefresh();
 
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -388,6 +453,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
       setIsPaymentLoading(false);
     }
   };
+
 
   const closePaymentCollectionDialog = () => {
     setPaymentCollectionDialog({
@@ -688,11 +754,11 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                   )}
                   {newStatus === 'delivered' && displayOrder.status !== 'delivered' && (
                     <button
-                      onClick={handleStatusUpdate}
+                      onClick={() => setPaymentConfirmDialog({ isOpen: true, orderData: displayOrder })}
                       disabled={isLoading}
                       className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isLoading ? 'Processing...' : 'Mark as Delivered & Record Payment'}
+                      {isLoading ? 'Processing...' : 'Proceed to Payment Confirmation'}
                     </button>
                   )}
                 </div>
@@ -738,20 +804,20 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         isLoading={isPaymentLoading}
       />
 
-      {/* Payment Collection Dialog */}
-      <PaymentCollectionDialog
+      {/* Order Payment Collection Dialog */}
+      <OrderPaymentCollectionDialog
         isOpen={paymentCollectionDialog.isOpen}
         onClose={closePaymentCollectionDialog}
         onPaymentSubmit={handlePaymentSubmit}
+        order={displayOrder}
         customer={paymentCollectionDialog.customer}
-        bills={paymentCollectionDialog.bills}
-        selectedBill={paymentCollectionDialog.selectedBill}
         isLoading={isPaymentLoading}
       />
 
       {/* Batch Allocation Dialog */}
       {order && (
         <BatchAllocationDialog
+          key={displayOrder.id} // Add key to force re-render when order changes
           isOpen={allocationDialogOpen}
           order={displayOrder}
           onClose={async (saved) => {
@@ -782,3 +848,53 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
     </Dialog>
   );
 }
+// Remove the automatic status update from handleStatusUpdate for 'delivered' status
+
+
+// Modified handlePaymentConfirmNo to mark as delivered
+const handlePaymentConfirmNo = async () => {
+  try {
+    setIsPaymentLoading(true);
+    const displayOrder = orderDetails || order;
+
+    const response = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        status: 'delivered',
+        changed_by: 'Admin User',
+        notes: 'Order delivered; amount added to outstanding'
+      })
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || 'Failed to mark order as delivered');
+    }
+
+    setOrderDetails(prev => prev ? { ...prev, status: 'delivered' } : prev);
+    setNewStatus('delivered'); // Update the select dropdown
+    setPaymentConfirmDialog({ isOpen: false, orderData: null });
+
+    toast({
+      title: 'Order Delivered',
+      description: 'Order marked as delivered and amount added to outstanding',
+      type: 'success'
+    });
+
+    if (onRefresh) onRefresh();
+  } catch (error) {
+    console.error('Error marking delivered:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to mark order as delivered. Please try again.',
+      type: 'error'
+    });
+  } finally {
+    setIsPaymentLoading(false);
+  }
+};
+
+// Modified handlePaymentSubmit to mark as delivered after payment

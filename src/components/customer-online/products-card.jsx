@@ -126,13 +126,13 @@ const ProductCard = ({ product, onAddToCart, cartItem, onQuantityChange, viewMod
       onAddToCart({
         ...product,
         id: generateCustomId('price'),
-        price: productData.retailPrice, // Keep original retail price
+        price: productData.retailPrice,
         quantity: calculatedQuantity,
         isCustom: true,
         displayName: `${product.name} (${calculatedQuantity} ${productData.unit} for ₹${enteredPrice})`,
         unit: productData.unit,
-        originalEnteredAmount: enteredPrice, // Store the exact amount entered by user
-        originalRetailPrice: productData.retailPrice // Store original retail price for display
+        originalEnteredAmount: enteredPrice,
+        originalRetailPrice: productData.retailPrice
       });
       setCustomPrice('');
       setShowCustomInputs(false);
@@ -184,8 +184,7 @@ const ProductCard = ({ product, onAddToCart, cartItem, onQuantityChange, viewMod
       `}
       style={{
         minHeight: '340px',
-        maxWidth: '280px',
-        margin: 'auto',
+        width: '280px', // Fixed width instead of maxWidth
         marginBottom: '24px',
         overflow: 'visible',
       }}
@@ -207,7 +206,7 @@ const ProductCard = ({ product, onAddToCart, cartItem, onQuantityChange, viewMod
         />
         {/* Out of stock overlay */}
         {productData.isOutOfStock && (
-          <div className="absolute inset-0  bg-opacity-60 flex items-center justify-center">
+          <div className="absolute inset-0 bg-opacity-60 flex items-center justify-center">
             <span className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow border border-red-500">
               OUT OF STOCK
             </span>
@@ -228,7 +227,7 @@ const ProductCard = ({ product, onAddToCart, cartItem, onQuantityChange, viewMod
       </div>
 
       {/* Product Info */}
-      <div>
+      <div className="flex-1"> {/* Added flex-1 to ensure consistent spacing */}
         <div className="text-xs text-orange-600 font-semibold uppercase mt-2 mb-1 tracking-wide">
           {product.category_name || product.categoryName || ''}
         </div>
