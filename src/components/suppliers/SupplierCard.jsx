@@ -14,6 +14,7 @@ import {
 import { useToast } from '../../contexts/ToastContext';
 import { useSafety } from '../../contexts/SafetyContext';
 import SafetyDialog from '../common/SafetyDialog';
+import DeleteConfirmationDialog from '../common/DeleteConfirmationDialog';
 
 const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
   const { showSuccess, showError } = useToast();
@@ -21,6 +22,7 @@ const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [showSafetyDialog, setShowSafetyDialog] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
   const [pendingAction, setPendingAction] = useState(null);
 
@@ -46,7 +48,7 @@ const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
       setPendingAction('delete');
       setShowSafetyDialog(true);
     } else {
-      performDelete();
+      setShowDeleteConfirmation(true);
     }
   };
 
@@ -77,7 +79,8 @@ const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
     if (pendingAction === 'edit') {
       onEdit(supplier);
     } else if (pendingAction === 'delete') {
-      performDelete();
+      // Always show confirmation dialog after password verification
+      setShowDeleteConfirmation(true);
     }
     setShowSafetyDialog(false);
     setPendingAction(null);
@@ -86,6 +89,15 @@ const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
   const handleSafetyCancel = () => {
     setShowSafetyDialog(false);
     setPendingAction(null);
+  };
+
+  const handleDeleteConfirm = () => {
+    setShowDeleteConfirmation(false);
+    performDelete();
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirmation(false);
   };
 
   return (
@@ -242,6 +254,18 @@ const SupplierCard = ({ supplier, onEdit, onSupplierUpdated }) => {
           title={`${pendingAction === 'edit' ? 'Edit' : 'Delete'} Supplier`}
           message={`Are you sure you want to ${pendingAction === 'edit' ? 'edit' : 'delete'} ${supplier.supplier_name}?`}
           actionType={pendingAction}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirmation && (
+        <DeleteConfirmationDialog
+          isOpen={showDeleteConfirmation}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          itemName={supplier.supplier_name}
+          itemType="Supplier"
+          loading={loading}
         />
       )}
     </>
