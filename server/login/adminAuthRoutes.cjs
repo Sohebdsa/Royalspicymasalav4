@@ -41,4 +41,57 @@ router.get('/verify-admin', verifyAdminToken, (req, res) => {
   });
 });
 
+// Refresh admin token endpoint
+router.post('/refresh-token', async (req, res) => {
+  try {
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token required'
+      });
+    }
+
+    // For now, we'll generate a new token using the same logic as login
+    // In a real implementation, you'd verify the refresh token against a database
+    const jwt = require('jsonwebtoken');
+    
+    // Try to decode the refresh token to get admin ID
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid refresh token'
+      });
+    }
+
+    if (decoded.type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    // Generate new access token
+    const { generateToken } = require('./adminAuthController.cjs');
+    const newToken = generateToken(decoded.adminId);
+
+    res.json({
+      success: true,
+      token: newToken,
+      message: 'Token refreshed successfully'
+    });
+
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;

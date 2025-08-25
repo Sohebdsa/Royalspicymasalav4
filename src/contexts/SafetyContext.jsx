@@ -48,15 +48,24 @@ export const SafetyProvider = ({ children }) => {
     try {
       setHasFetchedSafety(true);
       let token = localStorage.getItem('adminToken');
-      if (!token) return;
+      if (!token) {
+        console.warn('No admin token found, using default password');
+        return;
+      }
 
       let response = await fetch('http://localhost:5000/api/admin/safety-password', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.status === 403) {
+        console.warn('Token expired, attempting to refresh');
         token = await refreshAdminToken();
-        if (!token) return;
+        if (!token) {
+          console.error('Failed to refresh token, using default password');
+          // Clear invalid token from localStorage
+          localStorage.removeItem('adminToken');
+          return;
+        }
         response = await fetch('http://localhost:5000/api/admin/safety-password', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -64,9 +73,22 @@ export const SafetyProvider = ({ children }) => {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.password) setSafetyPassword(data.password);
+        if (data.success && data.password) {
+          setSafetyPassword(data.password);
+          console.log('Safety password fetched successfully:', data.password);
+        }
+      } else if (response.status === 404) {
+        console.warn('Safety password endpoint not found, using default password');
+      } else if (response.status === 401) {
+        console.warn('Authentication failed, clearing token and using default password');
+        localStorage.removeItem('adminToken');
+      } else {
+        console.warn('Failed to fetch safety password, status:', response.status);
+        const errorData = await response.json().catch(() => ({}));
+        console.warn('Error details:', errorData);
       }
-    } catch (_) {
+    } catch (error) {
+      console.error('Error fetching safety password:', error);
       // Silent fail, keep default password
     }
   };
@@ -82,6 +104,9 @@ export const SafetyProvider = ({ children }) => {
       const response = await fetch('http://localhost:5000/api/admin/refresh-token', {
         method: 'POST',
         credentials: 'include', // Use cookies for refresh token
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
 
       if (response.ok) {
@@ -90,10 +115,18 @@ export const SafetyProvider = ({ children }) => {
           localStorage.setItem('adminToken', data.token);
           console.log('Token refreshed successfully');
           return data.token;
+        } else {
+          console.error('Refresh token response:', data);
+        }
+      } else {
+        console.error('Refresh token failed with status:', response.status);
+        // If refresh token endpoint doesn't exist (404), try to get a new login token
+        if (response.status === 404) {
+          console.warn('Refresh token endpoint not found, user may need to log in again');
+          return null;
         }
       }
 
-      console.error('Failed to refresh token');
       return null;
     } catch (error) {
       console.error('Error refreshing token:', error);
@@ -136,13 +169,16 @@ export const SafetyProvider = ({ children }) => {
         }),
       });
 
-      if (response.status === 403) {
-        console.warn('Token expired, attempting to refresh');
+      if (response.status === 403 || response.status === 401) {
+        console.warn(`Token ${response.status === 403 ? 'expired' : 'invalid'}, attempting to refresh`);
         token = await refreshAdminToken();
         if (!token) {
+          console.error(`Failed to refresh token after ${response.status} error`);
+          localStorage.removeItem('adminToken'); // Clear invalid token
           return { success: false, message: 'Authentication failed. Please log in again.' };
         }
 
+        console.log('Retrying update safety settings with refreshed token');
         // Retry API call with refreshed token
         response = await fetch('http://localhost:5000/api/admin/update-safety', {
           method: 'POST',
