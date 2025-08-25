@@ -108,7 +108,8 @@ const SupplierPurchasePage = () => {
     { value: 'bottle', label: 'Bottle' },
     { value: 'cane', label: 'Cane' },
     { value: 'packet', label: 'Packet' },
-    { value: 'pouch', label: 'Pouch' }
+    { value: 'pouch', label: 'Pouch' },
+    { value: 'bag', label: 'Bag' }
   ];
 
   const paymentOptions = [

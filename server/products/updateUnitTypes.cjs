@@ -9,8 +9,8 @@ const updateUnitTypes = async () => {
     // Modify the ENUM column to include new unit types
     await connection.execute(`
       ALTER TABLE products 
-      MODIFY COLUMN unit ENUM('kg', 'gram', 'pound', 'box', 'pack', 'litre', 'bottle', 'cane', 'packet', 'pouch') DEFAULT 'kg'
-    `);
+      MODIFY COLUMN unit ENUM('kg', 'gram', 'pound', 'box', 'pack', 'litre', 'bottle', 'cane', 'packet', 'pouch', 'bag') DEFAULT 'kg'
+     `);
     
     console.log('✅ Unit types updated successfully!');
     
