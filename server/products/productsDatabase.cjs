@@ -26,7 +26,7 @@ const initializeProductsDatabase = async () => {
         name VARCHAR(200) NOT NULL,
         category_id INT NOT NULL,
         sub_category VARCHAR(100) NULL,
-        unit ENUM('kg', 'gram', 'pound', 'box', 'pack', 'litre') DEFAULT 'kg',
+        unit ENUM('kg', 'gram', 'pound', 'box', 'pack', 'litre', 'bottle', 'cane', 'packet', 'pouch') DEFAULT 'kg',
         market_price DECIMAL(10,2) NULL DEFAULT NULL,
         retail_price DECIMAL(10,2) NULL DEFAULT NULL,
         caterer_price DECIMAL(10,2) NULL DEFAULT NULL,

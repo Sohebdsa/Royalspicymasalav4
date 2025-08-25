@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import {
   Package, Clock, CheckCircle, XCircle, Truck, Eye,
   Phone, MapPin, Calendar, Search, RefreshCw, ArrowLeft, IndianRupee, Users,
+  ChevronDown,
 } from 'lucide-react';
 
 import OrderDetailsModal from '../../components/orders/order-details-modal';
@@ -26,31 +27,91 @@ import { useToast } from '../../contexts/ToastContext';
 const formatCurrency = (amount) => {
   const numAmount = Number(amount) || 0;
   const formatted = numAmount.toFixed(2);
-  // Check if the amount already has ₹ symbol to avoid duplication
   if (String(amount).includes('₹')) {
     return String(amount);
   }
   return `₹${formatted}`;
 };
+
 const formatDate = (dateStr) => {
   try {
+    // Ensure we're working with local date, not UTC
+    const date = new Date(dateStr + 'T00:00:00');
     return new Intl.DateTimeFormat('en-IN', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
-    }).format(new Date(dateStr));
+      day: 'numeric',
+      timeZone: 'Asia/Kolkata' // Explicit timezone for Indian Standard Time
+    }).format(date);
   } catch {
     return dateStr;
   }
 };
-
-// Date utility functions
 const getDateRange = (selectedDate) => {
   return {
     start: selectedDate,
     end: selectedDate
   };
 };
+
+const getDateRangeForFilter = (filterType) => {
+  // Use local date methods to avoid timezone issues
+  const now = new Date();
+
+  // Create dates using local methods to avoid UTC conversion issues
+  const getLocalDateString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const today = getLocalDateString(now);
+
+  switch (filterType) {
+    case 'today':
+      return {
+        start: today,
+        end: today
+      };
+
+    case 'yesterday':
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = getLocalDateString(yesterday);
+      return {
+        start: yesterdayStr,
+        end: yesterdayStr
+      };
+
+    case 'thisWeek':
+      const startOfWeek = new Date(now);
+      const day = startOfWeek.getDay();
+      // Calculate Monday as start of week (Monday = 1, Sunday = 0)
+      const daysToSubtract = day === 0 ? 6 : day - 1;
+      startOfWeek.setDate(startOfWeek.getDate() - daysToSubtract);
+
+      return {
+        start: getLocalDateString(startOfWeek),
+        end: today
+      };
+
+    case 'thisMonth':
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      return {
+        start: getLocalDateString(startOfMonth),
+        end: today
+      };
+
+    default:
+      return {
+        start: today,
+        end: today
+      };
+  }
+};
+
+
 
 // Constants
 const STATUS_CONFIG = {
@@ -115,7 +176,7 @@ function OrderCard({ order, onViewOrder, onOrderAction }) {
             {sourceConfig.label}
           </Badge>
         </div>
-        
+
         <div className="grid grid-cols-1 sm:grid-cols-3 text-sm text-gray-600 gap-2">
           <div className="flex items-center gap-2 truncate">
             <Phone className="h-4 w-4" />
@@ -130,19 +191,19 @@ function OrderCard({ order, onViewOrder, onOrderAction }) {
             <span>{formatDate(order.created_at)}</span>
           </div>
         </div>
-        
+
         <div className="mt-2 text-sm text-gray-600 flex flex-wrap gap-2 items-center">
           <span className="font-medium">{order.item_count} item{order.item_count !== 1 ? 's' : ''}</span>
           <span className="mx-2">&bull;</span>
           <span className="font-medium">Revenue: {formatCurrency(order.total_amount)}</span>
         </div>
       </div>
-      
+
       <div className="flex flex-wrap gap-2 justify-end">
         {statusConfig.actionButton && (
-          <Button 
-            size="sm" 
-            className={`${statusConfig.actionButton.color} text-white`} 
+          <Button
+            size="sm"
+            className={`${statusConfig.actionButton.color} text-white`}
             onClick={() => onOrderAction(order, statusConfig.actionButton.action)}
           >
             {statusConfig.icon}
@@ -197,12 +258,13 @@ function OrdersList({ orders, onViewOrder, onOrderAction }) {
 export default function OrdersPage() {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
-  
+
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   const [filters, setFilters] = useState({ status: 'all', source: 'all', search: '' });
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD format
+  const [dateFilterType, setDateFilterType] = useState('custom'); // 'custom', 'today', 'yesterday', 'thisWeek', 'thisMonth'
   const [confirmationDialog, setConfirmationDialog] = useState({ isOpen: false, order: null, action: 'approve' });
   const [isConfirmationLoading, setIsConfirmationLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState({});
@@ -255,7 +317,14 @@ export default function OrdersPage() {
       setOrdersLoading(true);
 
       // Get date range for filtering
-      const { start, end } = getDateRange(customDate);
+      let { start, end } = getDateRange(customDate);
+
+      // If using quick filter, get the appropriate date range
+      if (dateFilterType !== 'custom') {
+        const dateRange = getDateRangeForFilter(dateFilterType);
+        start = dateRange.start;
+        end = dateRange.end;
+      }
 
       // Build query parameters
       const params = new URLSearchParams({
@@ -276,7 +345,7 @@ export default function OrdersPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [selectedDate, ordersLoading]);
+  }, [selectedDate, dateFilterType, ordersLoading]);
 
   const fetchOrderStatsOnly = useCallback(async (customDate = selectedDate) => {
     if (statsLoading) return;
@@ -285,7 +354,14 @@ export default function OrdersPage() {
       setStatsLoading(true);
 
       // Get date range for filtering
-      const { start, end } = getDateRange(customDate);
+      let { start, end } = getDateRange(customDate);
+
+      // If using quick filter, get the appropriate date range
+      if (dateFilterType !== 'custom') {
+        const dateRange = getDateRangeForFilter(dateFilterType);
+        start = dateRange.start;
+        end = dateRange.end;
+      }
 
       // Build query parameters
       const params = new URLSearchParams({
@@ -304,13 +380,13 @@ export default function OrdersPage() {
     } finally {
       setStatsLoading(false);
     }
-  }, [selectedDate, statsLoading]);
+  }, [selectedDate, dateFilterType, statsLoading]);
 
-  // Combined fetch function with debouncing
+  // Combined fetch function with improved debouncing
   const fetchOrders = useCallback(async (customDate = selectedDate, force = false) => {
-    // Debounce: prevent calls within 200ms unless forced
+    // Debounce: prevent calls within 500ms unless forced
     const now = Date.now();
-    if (!force && now - lastFetchTimeRef.current < 200) {
+    if (!force && now - lastFetchTimeRef.current < 500) {
       return;
     }
 
@@ -346,6 +422,16 @@ export default function OrdersPage() {
     fetchOrders(selectedDate, true); // Force initial load
   }, []);
 
+  // Handle date filter type change
+  const handleDateFilterChange = (filterType) => {
+    setDateFilterType(filterType);
+
+    if (filterType !== 'custom') {
+      const dateRange = getDateRangeForFilter(filterType);
+      setSelectedDate(dateRange.start); // Set to the start date of the range
+    }
+  };
+
   // Automatic daily reset at 12 AM
   useEffect(() => {
     const checkForDailyReset = () => {
@@ -370,12 +456,12 @@ export default function OrdersPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-refresh orders every 60 seconds for real-time updates (reduced frequency)
+  // Auto-refresh orders every 120 seconds for real-time updates
   useEffect(() => {
     const interval = setInterval(() => {
       const { selectedDate: currentDate } = currentValuesRef.current;
       fetchOrders(currentDate, false); // Don't force, let debouncing work
-    }, 60000); // Increased to 60 seconds
+    }, 120000); // 2 minutes
 
     return () => clearInterval(interval);
   }, []); // Empty dependency array to prevent recreating interval
@@ -397,7 +483,6 @@ export default function OrdersPage() {
     }
   }, [confirmationDialog.isOpen, selectedDate]);
 
-  // Delivery payment dialog functionality restored - now shows confirmation dialog
 
   // Use real stats or fallback to calculated stats
   const stats = useMemo(() => {
@@ -457,12 +542,6 @@ export default function OrdersPage() {
   }, []);
 
   const handleOrderAction = useCallback((order, action) => {
-    console.log('🔥 [FRONTEND] Order action triggered:', {
-      orderId: order.id,
-      orderNumber: order.order_number,
-      action: action,
-      timestamp: new Date().toISOString()
-    });
     // Intercept process to force allocation dialog
     if (action === 'process') {
       setAllocationDialog({ isOpen: true, order });
@@ -475,25 +554,33 @@ export default function OrdersPage() {
     if (!confirmationDialog.order) return;
 
     const orderId = confirmationDialog.order.id;
-    
+
     // Prevent multiple rapid calls to the same action
     if (actionInProgress[orderId]) {
-      console.log('🔥 [FRONTEND] Action already in progress for order:', orderId);
       return;
     }
-
-    console.log('🔥 [FRONTEND] Confirm action triggered:', {
-      orderId: orderId,
-      orderNumber: confirmationDialog.order.order_number,
-      action: confirmationDialog.action,
-      timestamp: new Date().toISOString()
-    });
 
     setActionInProgress(prev => ({ ...prev, [orderId]: true }));
     setIsConfirmationLoading(true);
 
     try {
       const { order, action } = confirmationDialog;
+
+      // Special handling for deliver action - don't update status immediately
+      if (action === 'deliver') {
+        // Close confirmation dialog
+        setConfirmationDialog({ isOpen: false, order: null, action: 'approve' });
+
+        // Show payment confirmation dialog directly
+        setPaymentConfirmDialog({
+          isOpen: true,
+          orderData: order
+        });
+
+        return; // Exit early, don't update status yet
+      }
+
+      // For all other actions, proceed with immediate status update
       let newStatus = '';
 
       // Map actions to status
@@ -508,30 +595,12 @@ export default function OrdersPage() {
         case 'ship':
           newStatus = 'out_for_delivery';
           break;
-        case 'deliver':
-          newStatus = 'delivered';
-          break;
         case 'cancel':
           newStatus = 'cancelled';
           break;
         default:
           newStatus = action;
       }
-
-      // If delivering, first deduct inventory based on saved allocations
-      if (newStatus === 'delivered') {
-        const deductRes = await fetch(`http://localhost:5000/api/orders/${order.id}/deliver-with-deduction`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ markDelivered: false })
-        });
-        const deductData = await deductRes.json();
-        if (!deductData.success) {
-          throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
-        }
-      }
-
-      console.log('🔥 [FRONTEND] Making API call to update order status:', { orderId: order.id, newStatus, action });
 
       const response = await fetch(`http://localhost:5000/api/orders/${order.id}/status`, {
         method: 'PUT',
@@ -540,32 +609,20 @@ export default function OrdersPage() {
         },
         body: JSON.stringify({
           status: newStatus,
-          changed_by: 'Admin User', // You can get this from auth context
+          changed_by: 'Admin User',
           notes: `Status changed to ${newStatus}`
         })
       });
 
       const result = await response.json();
 
-      console.log('🔥 [FRONTEND] Order status update response:', result);
-
       if (result.success) {
         showSuccess(`Order ${action}d successfully - ${order.order_number}`);
 
-        // Close confirmation dialog first
+        // Close confirmation dialog
         setConfirmationDialog({ isOpen: false, order: null, action: 'approve' });
 
-        // If status changed to delivered, show payment confirmation dialog
-        if (newStatus === 'delivered') {
-          console.log('🔥 [FRONTEND] Status changed to delivered, showing payment confirmation dialog');
-          setPaymentConfirmDialog({
-            isOpen: true,
-            orderData: order
-          });
-        }
-
         // Refresh orders and close details modal
-        console.log('🔥 [FRONTEND] Refreshing orders after status update');
         await Promise.all([
           fetchOrders(selectedDate),
           fetchOrderStats(selectedDate)
@@ -588,9 +645,6 @@ export default function OrdersPage() {
   // Payment dialog handlers
   const handlePaymentConfirmYes = async () => {
     try {
-      // Close payment confirmation dialog
-      setPaymentConfirmDialog({ isOpen: false, orderData: null });
-
       // Get customer phone from order data
       const customerPhone = paymentConfirmDialog.orderData?.customer_phone;
       if (!customerPhone) {
@@ -640,18 +694,65 @@ export default function OrdersPage() {
     }
   };
 
-  const handlePaymentConfirmNo = () => {
-    // Close payment confirmation dialog
-    setPaymentConfirmDialog({ isOpen: false, orderData: null });
+  const handlePaymentConfirmNo = async () => {
+    try {
+      setIsPaymentLoading(true);
+      const orderData = paymentConfirmDialog.orderData;
 
-    // Show success message that amount will go to outstanding
-    showSuccess('Order amount has been added to customer\'s outstanding balance');
+      // First, deduct inventory based on saved allocations
+      const deductRes = await fetch(`http://localhost:5000/api/orders/${orderData.id}/deliver-with-deduction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markDelivered: false })
+      });
+      const deductData = await deductRes.json();
+      if (!deductData.success) {
+        throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
+      }
+
+      // Now mark as delivered and add to outstanding
+      const response = await fetch(`http://localhost:5000/api/orders/${orderData.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'delivered',
+          changed_by: 'Admin User',
+          notes: 'Order delivered; amount added to outstanding'
+        })
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to mark order as delivered');
+      }
+
+      // Close payment confirmation dialog
+      setPaymentConfirmDialog({ isOpen: false, orderData: null });
+
+      showSuccess('Order marked as delivered and amount added to customer\'s outstanding balance');
+
+      // Refresh data
+      await Promise.all([
+        fetchOrders(selectedDate),
+        fetchOrderStats(selectedDate)
+      ]);
+      setIsDetailsModalOpen(false);
+
+    } catch (error) {
+      console.error('Error marking delivered:', error);
+      showError('Failed to mark order as delivered. Please try again.');
+    } finally {
+      setIsPaymentLoading(false);
+    }
   };
 
   const handlePaymentSubmit = async (formData) => {
     try {
       setIsPaymentLoading(true);
 
+      // First record the payment
       const response = await fetch('http://localhost:5000/api/customers/payments', {
         method: 'POST',
         body: formData
@@ -662,15 +763,55 @@ export default function OrdersPage() {
         throw new Error(result.message || 'Failed to record payment');
       }
 
-      showSuccess('Payment has been successfully recorded');
+      // Payment recorded successfully, now deduct inventory and mark as delivered
+      const orderData = paymentConfirmDialog.orderData;
 
-      // Close payment collection dialog
+      // First, deduct inventory based on saved allocations
+      const deductRes = await fetch(`http://localhost:5000/api/orders/${orderData.id}/deliver-with-deduction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markDelivered: false })
+      });
+      const deductData = await deductRes.json();
+      if (!deductData.success) {
+        throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
+      }
+
+      // Now mark order as delivered
+      const orderResponse = await fetch(`http://localhost:5000/api/orders/${orderData.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'delivered',
+          changed_by: 'Admin User',
+          notes: 'Order marked as delivered after payment confirmation'
+        })
+      });
+
+      const orderResult = await orderResponse.json();
+      if (!orderResult.success) {
+        throw new Error(orderResult.message || 'Failed to mark order as delivered');
+      }
+
+      showSuccess('Payment has been successfully recorded and order marked as delivered');
+
+      // Close all dialogs
       setPaymentCollectionDialog({
         isOpen: false,
         customer: null,
         bills: [],
         selectedBill: null
       });
+      setPaymentConfirmDialog({ isOpen: false, orderData: null });
+
+      // Refresh data
+      await Promise.all([
+        fetchOrders(selectedDate),
+        fetchOrderStats(selectedDate)
+      ]);
+      setIsDetailsModalOpen(false);
 
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -772,11 +913,10 @@ export default function OrdersPage() {
             ].map((stat, idx) => (
               <Card
                 key={idx}
-                className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                  filters.status === stat.status
-                    ? 'ring-2 ring-blue-500 bg-blue-50'
-                    : 'hover:bg-gray-50'
-                }`}
+                className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${filters.status === stat.status
+                  ? 'ring-2 ring-blue-500 bg-blue-50'
+                  : 'hover:bg-gray-50'
+                  }`}
                 onClick={() => {
                   if (stat.filterable) {
                     // Toggle between the specific status and 'all'
@@ -798,147 +938,162 @@ export default function OrdersPage() {
 
 
 
-      {/* Search and Filter Section */}
-      <div className="mt-4">
-        <Card className="mb-4">
-          <CardContent className="p-4 flex flex-col sm:flex-row gap-4 items-center justify-center">
-            <div className="relative flex-1 max-w-md">
-              <Input
-                placeholder="Search orders..."
-                value={filters.search}
-                onChange={e => updateFilter('search', e.target.value)}
-                className="pl-10"
-              />
-              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-            </div>
-            <Select value={filters.status} onValueChange={value => updateFilter('status', value)}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                {Object.entries(STATUS_CONFIG).map(([key, config]) => (
-                  <SelectItem key={key} value={key}>{config.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filters.source} onValueChange={value => updateFilter('source', value)}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by Source" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(SOURCE_CONFIG).map(([key, config]) => (
-                  <SelectItem key={key} value={key}>{config.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-gray-400" />
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  setSelectedDate(e.target.value);
-                }}
-                className="w-40"
-                max={new Date().toISOString().split('T')[0]}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Search and Filter Section */}
+          <div className="mt-4">
+            <Card className="mb-4">
+              <CardContent className="p-4">
+                <div className="flex flex-wrap gap-4 items-center justify-start w-full">
+                  <div className="relative w-80 flex-shrink-0">
+                    <Input
+                      placeholder="Search orders..."
+                      value={filters.search}
+                      onChange={e => updateFilter('search', e.target.value)}
+                      className="pl-10 w-full"
+                    />
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  </div>
+                  <Select value={filters.status} onValueChange={value => updateFilter('status', value)}>
+                    <SelectTrigger className="w-100">
+                      <SelectValue placeholder="Filter by Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      {Object.entries(STATUS_CONFIG).map(([key, config]) => (
+                        <SelectItem key={key} value={key}>{config.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filters.source} onValueChange={value => updateFilter('source', value)}>
+                    <SelectTrigger className="w-48 flex-shrink-0">
+                      <SelectValue placeholder="Filter by Source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(SOURCE_CONFIG).map(([key, config]) => (
+                        <SelectItem key={key} value={key}>{config.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    <Input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => {
+                        setSelectedDate(e.target.value);
+                        setDateFilterType('custom'); // Switch to custom when date is manually changed
+                      }}
+                      className="w-40"
+                      max={new Date().toISOString().split('T')[0]}
+                    />
+                    <Select value={dateFilterType} onValueChange={handleDateFilterChange}>
+                      <SelectTrigger className="w-fit min-w-[200px] max-w-[300px] flex items-center justify-between px-3 py-2 whitespace-nowrap">
+                        <SelectValue placeholder="Quick Filter" />
+                      </SelectTrigger>
+                      <SelectContent className="w-fit min-w-[200px] max-w-[300px] overflow-hidden">
+                        <SelectItem value="today" className="whitespace-nowrap">Today</SelectItem>
+                        <SelectItem value="yesterday" className="whitespace-nowrap">Yesterday</SelectItem>
+                        <SelectItem value="thisWeek" className="whitespace-nowrap">This Week</SelectItem>
+                        <SelectItem value="thisMonth" className="whitespace-nowrap">This Month</SelectItem>
+                      </SelectContent>
+                    </Select>
 
-      <div className="mt-4">
-          
-          <OrdersList
-            orders={filteredOrders}
-            onViewOrder={handleViewOrder}
-            onOrderAction={handleOrderAction}
-          />
-      </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Modals */}
-      {selectedOrder && (
-        <OrderDetailsModal
-          order={selectedOrder}
-          isOpen={isDetailsModalOpen}
-          onClose={() => {
-            setSelectedOrder(null);
-            setIsDetailsModalOpen(false);
-          }}
-          onRefresh={() => {
-            fetchOrders(selectedDate); // Actually refresh the orders data
-            fetchOrderStats(selectedDate); // Refresh the stats as well
-            showSuccess('Order updated successfully');
-          }}
-        />
-      )}
+          <div className="mt-4">
 
-      {confirmationDialog.order && (
-        <OrderConfirmationDialog
-          isOpen={confirmationDialog.isOpen}
-          onClose={() => setConfirmationDialog({ isOpen: false, order: null, action: 'approve' })}
-          onConfirm={handleConfirmAction}
-          order={confirmationDialog.order}
-          action={confirmationDialog.action}
-          isLoading={isConfirmationLoading}
-        />
-      )}
+            <OrdersList
+              orders={filteredOrders}
+              onViewOrder={handleViewOrder}
+              onOrderAction={handleOrderAction}
+            />
+          </div>
 
-      {/* Batch Allocation Dialog */}
-      {allocationDialog.order && (
-        <BatchAllocationDialog
-          isOpen={allocationDialog.isOpen}
-          order={allocationDialog.order}
-          onClose={async (saved) => {
-            setAllocationDialog({ isOpen: false, order: null });
-            if (saved) {
-              // After saving allocations, set status to processing
-              try {
-                const response = await fetch(`http://localhost:5000/api/orders/${allocationDialog.order.id}/status`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: 'processing', changed_by: 'Admin', notes: 'Processing after batch allocation' })
-                });
-                const result = await response.json();
-                if (result.success) {
-                  showSuccess('Order moved to Processing');
-                  await Promise.all([
-                    fetchOrders(selectedDate),
-                    fetchOrderStats(selectedDate)
-                  ]);
-                } else {
-                  showError(result.message || 'Failed to update status');
+          {/* Modals */}
+          {selectedOrder && (
+            <OrderDetailsModal
+              order={selectedOrder}
+              isOpen={isDetailsModalOpen}
+              onClose={() => {
+                setSelectedOrder(null);
+                setIsDetailsModalOpen(false);
+              }}
+              onRefresh={() => {
+                fetchOrders(selectedDate); // Actually refresh the orders data
+                fetchOrderStats(selectedDate); // Refresh the stats as well
+                showSuccess('Order updated successfully');
+              }}
+            />
+          )}
+
+          {confirmationDialog.order && (
+            <OrderConfirmationDialog
+              isOpen={confirmationDialog.isOpen}
+              onClose={() => setConfirmationDialog({ isOpen: false, order: null, action: 'approve' })}
+              onConfirm={handleConfirmAction}
+              order={confirmationDialog.order}
+              action={confirmationDialog.action}
+              isLoading={isConfirmationLoading}
+            />
+          )}
+
+          {/* Batch Allocation Dialog */}
+          {allocationDialog.order && (
+            <BatchAllocationDialog
+              isOpen={allocationDialog.isOpen}
+              order={allocationDialog.order}
+              onClose={async (saved) => {
+                setAllocationDialog({ isOpen: false, order: null });
+                if (saved) {
+                  // After saving allocations, set status to processing
+                  try {
+                    const response = await fetch(`http://localhost:5000/api/orders/${allocationDialog.order.id}/status`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'processing', changed_by: 'Admin', notes: 'Processing after batch allocation' })
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                      showSuccess('Order moved to Processing');
+                      await Promise.all([
+                        fetchOrders(selectedDate),
+                        fetchOrderStats(selectedDate)
+                      ]);
+                    } else {
+                      showError(result.message || 'Failed to update status');
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    showError('Failed to update status to Processing');
+                  }
                 }
-              } catch (e) {
-                console.error(e);
-                showError('Failed to update status to Processing');
-              }
-            }
-          }}
-        />
-      )}
+              }}
+            />
+          )}
 
-      {/* Payment Confirmation Dialog */}
-      <PaymentConfirmationDialog
-        isOpen={paymentConfirmDialog.isOpen}
-        onClose={() => setPaymentConfirmDialog({ isOpen: false, orderData: null })}
-        onYes={handlePaymentConfirmYes}
-        onNo={handlePaymentConfirmNo}
-        orderDetails={paymentConfirmDialog.orderData}
-        isLoading={isPaymentLoading}
-      />
+          {/* Payment Confirmation Dialog */}
+          <PaymentConfirmationDialog
+            isOpen={paymentConfirmDialog.isOpen}
+            onClose={() => setPaymentConfirmDialog({ isOpen: false, orderData: null })}
+            onYes={handlePaymentConfirmYes}
+            onNo={handlePaymentConfirmNo}
+            orderDetails={paymentConfirmDialog.orderData}
+            isLoading={isPaymentLoading}
+          />
 
-      {/* Payment Collection Dialog */}
-      <PaymentCollectionDialog
-        isOpen={paymentCollectionDialog.isOpen}
-        onClose={closePaymentCollectionDialog}
-        onPaymentSubmit={handlePaymentSubmit}
-        customer={paymentCollectionDialog.customer}
-        bills={paymentCollectionDialog.bills}
-        selectedBill={paymentCollectionDialog.selectedBill}
-        isLoading={isPaymentLoading}
-      />
+          {/* Payment Collection Dialog */}
+          <PaymentCollectionDialog
+            isOpen={paymentCollectionDialog.isOpen}
+            onClose={closePaymentCollectionDialog}
+            onPaymentSubmit={handlePaymentSubmit}
+            customer={paymentCollectionDialog.customer}
+            bills={paymentCollectionDialog.bills}
+            selectedBill={paymentCollectionDialog.selectedBill}
+            isLoading={isPaymentLoading}
+          />
         </>
       )}
     </div>

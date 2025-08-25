@@ -119,74 +119,85 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     return allocationItems;
   }, [orderData?.items]);
 
-  const debouncedCount = useDebounce(itemsNeedingAllocation.length, 200);
+  const debouncedCount = useDebounce(itemsNeedingAllocation.length, 500);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (memoizedOrder?.items?.length) {
-      setOrderData(memoizedOrder);
-    } else if (memoizedOrder?.id) {
-      (async () => {
-        setLoading(true);
-        try {
-          const res = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}`);
-          const { success, data } = await res.json();
-          if (success) setOrderData(data);
-        } catch {
-          showError('Failed to load order details');
-        } finally {
-          setLoading(false);
-        }
-      })();
-    }
-  }, [isOpen, memoizedOrder?.id]);
-
+  // Combined data fetching with proper debouncing
   useEffect(() => {
     if (!isOpen || !memoizedOrder?.id) return;
+    
     let abort = false;
-    (async () => {
+    let isLoading = false;
+    
+    const fetchAllData = async () => {
+      if (isLoading) return;
+      isLoading = true;
+      
       try {
-        const res = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}/allocations`);
-        const { success, data } = await res.json();
-        if (success && Array.isArray(data) && !abort) {
+        // Fetch order details if needed
+        if (!memoizedOrder?.items?.length) {
+          const orderRes = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}`);
+          const { success, data } = await orderRes.json();
+          if (success && !abort) {
+            setOrderData(data);
+          }
+        }
+        
+        // Fetch allocations
+        const allocRes = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}/allocations`);
+        const { success: allocSuccess, data: allocData } = await allocRes.json();
+        if (allocSuccess && Array.isArray(allocData) && !abort) {
           const grouped = {};
-          data.forEach(a => {
+          allocData.forEach(a => {
             const key = a.order_item_id.toString();
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(a);
           });
           setAllocations(grouped);
         }
-      } catch {}
-    })();
-    return () => { abort = true; };
-  }, [isOpen, memoizedOrder?.id]);
-
-  useEffect(() => {
-    if (!isOpen || !itemsNeedingAllocation.length) return;
-    let abort = false;
-    (async () => {
-      setLoading(true);
-      const all = {};
-      const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
-      for (const pid of pids) {
-        try {
-          const res = await fetch(`http://localhost:5000/api/inventory/product/${pid}/batches`);
-          const { success, data } = await res.json();
-          all[pid] = success
-            ? data.map(b => ({
-                batch: b.batch,
-                totalQuantity: parseFloat(b.total_quantity),
-                unit: b.unit
-              }))
-            : [];
-        } catch {}
+        
+        // Fetch available batches only if we have items needing allocation
+        if (itemsNeedingAllocation.length > 0) {
+          const all = {};
+          const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
+          
+          // Use Promise.all for concurrent batch fetching
+          const batchPromises = pids.map(async (pid) => {
+            try {
+              const res = await fetch(`http://localhost:5000/api/inventory/product/${pid}/batches`);
+              const { success, data } = await res.json();
+              all[pid] = success
+                ? data.map(b => ({
+                    batch: b.batch,
+                    totalQuantity: parseFloat(b.total_quantity),
+                    unit: b.unit
+                  }))
+                : [];
+            } catch (error) {
+              console.error(`Error fetching batches for product ${pid}:`, error);
+              all[pid] = [];
+            }
+          });
+          
+          await Promise.all(batchPromises);
+          if (!abort) setAvailableBatches(all);
+        }
+      } catch (error) {
+        console.error('Error fetching batch allocation data:', error);
+        showError('Failed to load allocation data');
+      } finally {
+        isLoading = false;
+        setLoading(false);
       }
-      if (!abort) setAvailableBatches(all);
-      setLoading(false);
-    })();
-    return () => { abort = true; };
-  }, [isOpen, debouncedCount, memoizedOrder?.id]);
+    };
+    
+    // Debounce the fetch to prevent rapid calls
+    const timeoutId = setTimeout(fetchAllData, 300);
+    
+    return () => {
+      abort = true;
+      clearTimeout(timeoutId);
+    };
+  }, [isOpen, debouncedCount, memoizedOrder?.id, memoizedOrder?.items?.length, itemsNeedingAllocation.length]);
 
   const totalAllocatedForItem = useCallback(
     key => (allocations[key] || []).reduce((sum, a) => sum + parseFloat(a.quantity || 0), 0),

@@ -336,7 +336,7 @@ const ProductsPage = () => {
   };
 
   const handleDeleteProduct = (product) => {
-    // First confirm with standard dialog
+    
     if (window.confirm(`Are you sure you want to delete "${product.name}"? This action cannot be undone.`)) {
       // Then check safety mechanism
       checkSafetyAndProceed(
@@ -881,6 +881,10 @@ const ProductsPage = () => {
                 <option value="box">Box</option>
                 <option value="pack">Pack</option>
                 <option value="litre">Litre (L)</option>
+                <option value="bottle">Bottle</option>
+                <option value="cane">Cane</option>
+                <option value="packet">Packet</option>
+                <option value="pouch">Pouch</option>
               </select>
             </div>
 

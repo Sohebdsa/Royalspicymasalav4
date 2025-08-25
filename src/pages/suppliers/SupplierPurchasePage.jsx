@@ -104,7 +104,11 @@ const SupplierPurchasePage = () => {
     { value: 'pound', label: 'Pound (lb)' },
     { value: 'pack', label: 'Pack' },
     { value: 'litre', label: 'Litre (L)' },
-    { value: 'box', label: 'Box' }
+    { value: 'box', label: 'Box' },
+    { value: 'bottle', label: 'Bottle' },
+    { value: 'cane', label: 'Cane' },
+    { value: 'packet', label: 'Packet' },
+    { value: 'pouch', label: 'Pouch' }
   ];
 
   const paymentOptions = [

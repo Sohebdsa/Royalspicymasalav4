@@ -7,7 +7,7 @@ import { Input } from '../ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
   CreditCard, AlertCircle, IndianRupee,
-  Calculator, CheckCircle, Loader2, Receipt, FileImage
+  CheckCircle, Loader2, FileImage
 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -16,7 +16,8 @@ export default function OrderPaymentCollectionDialog({
   onClose,
   onPaymentSubmit,
   order,
-  customer,
+  customer = {},
+  outstanding = 0,
   isLoading = false
 }) {
   const { toast } = useToast();
@@ -25,6 +26,14 @@ export default function OrderPaymentCollectionDialog({
     console.error('OrderPaymentCollectionDialog: Order prop is required');
     return null;
   }
+
+  // Ensure customer is an object, not null or undefined
+  const safeCustomer = customer || {};
+
+  // Compute combined max
+  const orderAmount = parseFloat(order.total_amount || 0);
+  const custOutstanding = parseFloat(outstanding || 0);
+  const maxAmountTotal = orderAmount + custOutstanding;
 
   const [paymentData, setPaymentData] = useState({
     amount: '',
@@ -35,7 +44,7 @@ export default function OrderPaymentCollectionDialog({
   });
   const [errors, setErrors] = useState({});
 
-  const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString('en-IN')}`;
+  const formatCurrency = amt => `₹${parseFloat(amt || 0).toLocaleString('en-IN')}`;
 
   // Reset form on open
   useEffect(() => {
@@ -51,85 +60,66 @@ export default function OrderPaymentCollectionDialog({
     }
   }, [isOpen, order]);
 
-  // Update amount
-  const handleAmountChange = (value) => {
-    setPaymentData(prev => ({ ...prev, amount: value }));
-    setErrors(prev => ({ ...prev, amount: '' }));
-    const amount = parseFloat(value || 0);
-    const maxAmount = parseFloat(order.total_amount || 0);
-    if (amount > maxAmount) {
-      setErrors(prev => ({ ...prev, amount: `Amount cannot exceed ${formatCurrency(maxAmount)}` }));
+  // Handlers
+  const handleAmountChange = value => {
+    setPaymentData(pd => ({ ...pd, amount: value }));
+    setErrors(err => ({ ...err, amount: '' }));
+    const val = parseFloat(value || 0);
+    if (val > maxAmountTotal) {
+      setErrors(err => ({
+        ...err,
+        amount: `Cannot exceed ₹${maxAmountTotal.toFixed(2)} (order + outstanding)`
+      }));
     }
   };
 
-  // File upload
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        setErrors(prev => ({ ...prev, receipt: 'Please upload an image file' }));
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        setErrors(prev => ({ ...prev, receipt: 'File size must be less than 5MB' }));
-        return;
-      }
-      setPaymentData(prev => ({ ...prev, receiptFile: file }));
-      setErrors(prev => ({ ...prev, receipt: '' }));
+  const handleFileUpload = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      return setErrors(err => ({ ...err, receipt: 'Please upload an image file' }));
     }
+    if (file.size > 5 * 1024 * 1024) {
+      return setErrors(err => ({ ...err, receipt: 'File size must be under 5MB' }));
+    }
+    setPaymentData(pd => ({ ...pd, receiptFile: file }));
+    setErrors(err => ({ ...err, receipt: null }));
   };
 
-  // Validate payment
   const validatePayment = () => {
-    const newErrors = {};
-    const amount = parseFloat(paymentData.amount || 0);
-
-    if (amount <= 0) {
-      newErrors.amount = 'Amount must be greater than 0';
-    }
-    const maxAmount = parseFloat(order.total_amount || 0);
-    if (amount > maxAmount) {
-      newErrors.amount = `Amount cannot exceed ${formatCurrency(maxAmount)}`;
-    }
-    if (['upi', 'bank_transfer'].includes(paymentData.paymentMethod)) {
-      if (!paymentData.referenceNumber.trim()) {
-        newErrors.referenceNumber = 'Reference number is required';
+    const newErr = {};
+    const amt = parseFloat(paymentData.amount || 0);
+    if (amt <= 0) newErr.amount = 'Amount must be > 0';
+    if (amt > maxAmountTotal) newErr.amount = `Cannot exceed ₹${maxAmountTotal.toFixed(2)}`;
+    if (['upi','bank_transfer'].includes(paymentData.paymentMethod)) {
+      if (!paymentData.referenceNumber?.trim()) {
+        newErr.referenceNumber = 'Reference required';
       }
     }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(newErr);
+    return !Object.keys(newErr).length;
   };
 
-  // Submit payment
   const handleSubmit = () => {
     if (!validatePayment()) return;
-
-    if (!customer?.id) {
-      setErrors(prev => ({ ...prev, customer: 'Customer is required' }));
+    if (!safeCustomer.id) {
+      setErrors(err => ({ ...err, customer: 'Customer missing' }));
       return;
     }
-
-    const formData = new FormData();
-    formData.append('customerId', customer.id);
-    formData.append('amount', parseFloat(paymentData.amount));
-    formData.append('paymentMethod', paymentData.paymentMethod);
-    formData.append('notes', paymentData.notes || '');
-    formData.append('orderId', order.id);
-
-    if (paymentData.referenceNumber) {
-      formData.append('referenceNumber', paymentData.referenceNumber);
-    }
-    if (paymentData.receiptFile) {
-      formData.append('receipt_image', paymentData.receiptFile);
-    }
-
-    // This will now record payment AND mark order as delivered
-    onPaymentSubmit(formData);
+    const fd = new FormData();
+    fd.append('customerId', safeCustomer.id);
+    fd.append('amount', parseFloat(paymentData.amount));
+    fd.append('paymentMethod', paymentData.paymentMethod);
+    fd.append('notes', paymentData.notes || '');
+    fd.append('orderId', order.id);
+    if (paymentData.referenceNumber) fd.append('referenceNumber', paymentData.referenceNumber);
+    if (paymentData.receiptFile) fd.append('receipt_image', paymentData.receiptFile);
+    onPaymentSubmit(fd);
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto p-6">
         <DialogHeader className="space-y-3 pb-6">
           <DialogTitle className="flex items-center gap-3 text-xl">
             <div className="p-2 bg-green-100 rounded-lg">
@@ -137,154 +127,180 @@ export default function OrderPaymentCollectionDialog({
             </div>
             <div>
               <div className="font-bold">Record Payment</div>
-              <div className="text-sm font-normal text-gray-600">
-                {customer?.name || 'Unknown Customer'} - Order #{order?.order_number || 'N/A'}
+              <div className="text-sm text-gray-600">
+                {safeCustomer.name || safeCustomer.customer_name || 'Unknown'} – Order #{order.order_number}
               </div>
             </div>
           </DialogTitle>
         </DialogHeader>
 
-        {/* Payment form content remains the same... */}
-        <div className="space-y-6">
-          {/* Amount Section */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <IndianRupee className="h-5 w-5 text-green-600" />
-                Payment Amount
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Amount
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={paymentData.amount}
-                    onChange={(e) => handleAmountChange(e.target.value)}
-                    placeholder="Enter amount"
-                    className={errors.amount ? 'border-red-300' : ''}
-                  />
-                  {errors.amount && (
-                    <p className="text-red-500 text-xs mt-1">{errors.amount}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Order Total
-                  </label>
-                  <div className="flex items-center h-10 px-3 bg-gray-50 border border-gray-200 rounded-md">
-                    <span className="text-gray-900 font-medium">
-                      {formatCurrency(order.total_amount)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Method
-                </label>
-                <select
-                  value={paymentData.paymentMethod}
-                  onChange={(e) => setPaymentData(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="upi">UPI</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="card">Card</option>
-                  <option value="cheque">Cheque</option>
-                </select>
-              </div>
-
-              {/* Reference Number for digital payments */}
-              {['upi', 'bank_transfer'].includes(paymentData.paymentMethod) && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reference Number *
-                  </label>
-                  <Input
-                    value={paymentData.referenceNumber}
-                    onChange={(e) => setPaymentData(prev => ({ ...prev, referenceNumber: e.target.value }))}
-                    placeholder="Enter transaction reference number"
-                    className={errors.referenceNumber ? 'border-red-300' : ''}
-                  />
-                  {errors.referenceNumber && (
-                    <p className="text-red-500 text-xs mt-1">{errors.referenceNumber}</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Receipt Upload */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Receipt className="h-5 w-5 text-blue-600" />
-                Receipt Upload (Optional)
-              </CardTitle>
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-blue-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Order Total</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <FileImage className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="receipt-upload"
-                />
-                <label
-                  htmlFor="receipt-upload"
-                  className="cursor-pointer text-blue-600 hover:text-blue-800"
-                >
-                  Click to upload receipt image
-                </label>
-                <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 5MB</p>
-                {paymentData.receiptFile && (
-                  <p className="text-green-600 text-sm mt-2">
-                    ✓ {paymentData.receiptFile.name}
-                  </p>
-                )}
-                {errors.receipt && (
-                  <p className="text-red-500 text-xs mt-1">{errors.receipt}</p>
-                )}
+              <div className="text-2xl font-bold text-blue-600">
+                {formatCurrency(orderAmount)}
               </div>
             </CardContent>
           </Card>
-
-          {/* Notes */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Additional Notes</CardTitle>
+          <Card className="border-green-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Customer Outstanding</CardTitle>
             </CardHeader>
             <CardContent>
-              <textarea
-                value={paymentData.notes}
-                onChange={(e) => setPaymentData(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="Any additional notes about the payment..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
+              <div className="text-2xl font-bold text-red-600">
+                {formatCurrency(custOutstanding)}
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex justify-between items-center pt-6">
-          <Button variant="outline" onClick={onClose} disabled={isLoading} className="px-6">
+        {/* Amount input */}
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <IndianRupee className="h-5 w-5 text-green-600" />
+              Payment Amount <span className="text-red-500">*</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="relative mb-2">
+              <IndianRupee className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                type="number"
+                step="0.01"
+                className="pl-10 h-12 text-lg"
+                value={paymentData.amount}
+                onChange={e => handleAmountChange(e.target.value)}
+              />
+            </div>
+            {errors.amount && (
+              <div className="text-red-500 text-sm flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" /> {errors.amount}
+              </div>
+            )}
+            <div className="text-sm text-gray-600">
+              Max: {formatCurrency(maxAmountTotal)}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  handleAmountChange(maxAmountTotal.toString())
+                }
+              >
+                Full Amount
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Payment method & reference */}
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Payment Method</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <select
+              value={paymentData.paymentMethod}
+              onChange={e => setPaymentData(pd => ({
+                ...pd,
+                paymentMethod: e.target.value
+              }))}
+              className="w-full p-3 border rounded focus:ring-2 focus:ring-green-500"
+            >
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cheque">Cheque</option>
+            </select>
+            {['upi','bank_transfer'].includes(paymentData.paymentMethod) && (
+              <>
+                <Input
+                  placeholder="Reference Number"
+                  value={paymentData.referenceNumber}
+                  onChange={e => setPaymentData(pd => ({
+                    ...pd,
+                    referenceNumber: e.target.value
+                  }))}
+                  className={errors.referenceNumber ? 'border-red-300' : ''}
+                />
+                {errors.referenceNumber && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.referenceNumber}
+                  </p>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Receipt upload */}
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Upload Receipt (Optional)</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-center p-6">
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleFileUpload}
+              className="hidden"
+              id="receipt-upload"
+            />
+            <label htmlFor="receipt-upload" className="cursor-pointer">
+              <FileImage className="h-8 w-8 text-gray-400 mb-2" />
+              <div className="text-sm text-gray-600">
+                {paymentData.receiptFile
+                  ? paymentData.receiptFile.name
+                  : 'Click to upload receipt'}
+              </div>
+            </label>
+            {errors.receipt && (
+              <p className="text-red-500 text-xs mt-1">{errors.receipt}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Notes */}
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Additional Notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              rows={3}
+              placeholder="Any notes..."
+              value={paymentData.notes}
+              onChange={e => setPaymentData(pd => ({
+                ...pd, notes: e.target.value
+              }))}
+              className="w-full p-3 border rounded focus:ring-2 focus:ring-green-500"
+            />
+          </CardContent>
+        </Card>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-4">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            disabled={isLoading}
+          >
             Cancel
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isLoading || !paymentData.amount || parseFloat(paymentData.amount) <= 0}
-            className="px-6 bg-green-600 hover:bg-green-700"
+            disabled={
+              isLoading ||
+              !paymentData.amount ||
+              parseFloat(paymentData.amount) <= 0
+            }
+            className="bg-green-600 hover:bg-green-700"
           >
             {isLoading ? (
               <>
@@ -294,7 +310,7 @@ export default function OrderPaymentCollectionDialog({
             ) : (
               <>
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Record Payment & Mark Delivered
+                Record Payment
               </>
             )}
           </Button>

@@ -470,6 +470,8 @@ const updateOrderStatus = async (req, res) => {
       // Handle bill creation for delivered orders
       if (status === 'delivered' && oldStatus !== 'delivered') {
         try {
+          console.log('🔥 [DEBUG] Creating bill for delivered order:', { id, oldStatus, status });
+          
           const [orderResult] = await connection.execute(`
             SELECT o.*,
                    GROUP_CONCAT(
@@ -489,6 +491,12 @@ const updateOrderStatus = async (req, res) => {
 
           if (orderResult.length > 0) {
             const order = orderResult[0];
+            console.log('🔥 [DEBUG] Order data for bill creation:', {
+              orderId: id,
+              customerId: order.customer_phone,
+              totalAmount: order.total_amount
+            });
+            
             const customerId = await createOrUpdateCustomer(order);
 
             let orderItems = [];
@@ -506,6 +514,7 @@ const updateOrderStatus = async (req, res) => {
             `, [id]);
 
             if (existingBills.length > 0) {
+              console.log('🔥 [DEBUG] Updating existing bill for order:', id);
               await connection.execute(`
                 UPDATE customer_bills
                 SET
@@ -523,6 +532,7 @@ const updateOrderStatus = async (req, res) => {
                 id
               ]);
             } else {
+              console.log('🔥 [DEBUG] Creating new bill for order:', id);
               const billNumber = `BILL-${Date.now()}`;
 
               const [billResult] = await connection.execute(`
@@ -542,94 +552,82 @@ const updateOrderStatus = async (req, res) => {
               ]);
               
               const billId = billResult.insertId;
-              const paymentAmount = order.total_amount;
+              console.log('🔥 [DEBUG] Bill created successfully:', { billId, billNumber, customerId, totalAmount: order.total_amount });
               
-              // Debug the payment data
-              console.log('Creating payment record:', {
-                customerId,
-                billId,
-                paymentAmount,
-                paymentMethod: 'full',
-                referenceNumber: `Payment for order ${order.order_number} (Bill ${billNumber})`,
-                notes: `/api/receipts/bill-${billId}.pdf`
-              });
-
-              await connection.execute(`
-                INSERT INTO customer_payments (
-                  customer_id, bill_id, payment_date, amount,
-                  payment_method, reference_number, notes
-                ) VALUES (?, ?, CURDATE(), ?, 'bank_transfer', ?, ?)
-              `, [
-                customerId,
-                billId,
-                paymentAmount,
-                `Payment for order ${order.order_number} (Bill ${billNumber})`,
-                `/api/receipts/bill-${billId}.pdf`
-              ]);
-
-              await connection.execute(`
-                UPDATE customer_bills
-                SET
-                  paid_amount = ?,
-                  pending_amount = 0,
-                  status = 'paid',
-                  updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-              `, [paymentAmount, billId]);
-
+              // DO NOT create automatic payment record - this is the main issue!
+              // The bill should be created with pending_amount = total_amount
+              // and customer outstanding_balance should be increased by total_amount
+              
+              // Update customer outstanding balance - INCREASE instead of decrease
               await connection.execute(`
                 UPDATE customers
                 SET
-                  total_paid = total_paid + ?,
-                  outstanding_balance = outstanding_balance - ?,
+                  total_amount = total_amount + ?,
+                  outstanding_balance = outstanding_balance + ?,
                   updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-              `, [paymentAmount, paymentAmount, customerId]);
+              `, [order.total_amount, order.total_amount, customerId]);
+              
+              console.log('🔥 [DEBUG] Customer outstanding balance updated - increased by:', order.total_amount);
             }
 
+            // Handle actual payments if provided (this is for when customer pays during delivery)
             if (payment && payment.amount > 0) {
+              console.log('🔥 [DEBUG] Processing actual payment:', payment);
               const paymentAmount = parseFloat(payment.amount);
 
-              await connection.execute(`
-                INSERT INTO customer_payments (
-                  customer_id, bill_id, payment_date, amount,
-                  payment_method, reference_number, notes
-                ) VALUES (?, ?, CURDATE(), ?, ?, ?, ?)
-              `, [
-                customerId,
-                billId,
-                paymentAmount,
-                payment.paymentMethod || 'cash',
-                payment.referenceNumber || null,
-                payment.notes || `Payment for order ${order.order_number}`
-              ]);
+              // Get the bill ID (either existing or newly created)
+              const [billResult] = await connection.execute(`
+                SELECT id FROM customer_bills WHERE order_id = ?
+              `, [id]);
+              
+              const billId = billResult.length > 0 ? billResult[0].id : null;
+              
+              if (billId) {
+                await connection.execute(`
+                  INSERT INTO customer_payments (
+                    customer_id, bill_id, payment_date, amount,
+                    payment_method, reference_number, notes
+                  ) VALUES (?, ?, CURDATE(), ?, ?, ?, ?)
+                `, [
+                  customerId,
+                  billId,
+                  paymentAmount,
+                  payment.paymentMethod || 'cash',
+                  payment.referenceNumber || null,
+                  payment.notes || `Payment for order ${order.order_number}`
+                ]);
 
-              await connection.execute(`
-                UPDATE customer_bills
-                SET
-                  paid_amount = paid_amount + ?,
-                  pending_amount = pending_amount - ?,
-                  status = CASE
-                    WHEN pending_amount - ? <= 0.01 THEN 'paid'
-                    WHEN paid_amount + ? > 0 THEN 'partial'
-                    ELSE 'pending'
-                  END,
-                  updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-              `, [paymentAmount, paymentAmount, paymentAmount, paymentAmount, billId]);
+                await connection.execute(`
+                  UPDATE customer_bills
+                  SET
+                    paid_amount = paid_amount + ?,
+                    pending_amount = pending_amount - ?,
+                    status = CASE
+                      WHEN pending_amount - ? <= 0.01 THEN 'paid'
+                      WHEN paid_amount + ? > 0 THEN 'partial'
+                      ELSE 'pending'
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `, [paymentAmount, paymentAmount, paymentAmount, paymentAmount, billId]);
 
-              await connection.execute(`
-                UPDATE customers
-                SET
-                  total_paid = total_paid + ?,
-                  outstanding_balance = outstanding_balance - ?,
-                  updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-              `, [paymentAmount, paymentAmount, customerId]);
+                // Update customer totals - reduce outstanding by payment amount
+                await connection.execute(`
+                  UPDATE customers
+                  SET
+                    total_paid = total_paid + ?,
+                    outstanding_balance = outstanding_balance - ?,
+                    updated_at = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `, [paymentAmount, paymentAmount, customerId]);
+                
+                console.log('🔥 [DEBUG] Payment processed - outstanding reduced by:', paymentAmount);
+              }
             }
           }
         } catch (billError) {
-          console.error('Error creating customer bill:', billError);
+          console.error('🔥 [ERROR] Error creating customer bill:', billError);
         }
       }
 

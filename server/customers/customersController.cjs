@@ -127,9 +127,10 @@ const createOrUpdateCustomer = async (orderData) => {
     if (existingCustomer.length > 0) {
       // Update existing customer
       customerId = existingCustomer[0].id;
+      console.log('🔥 [DEBUG] Updating existing customer:', { customerId, phone: orderData.customer_phone, amountToAdd: orderData.total_amount });
       await connection.execute(`
-        UPDATE customers 
-        SET 
+        UPDATE customers
+        SET
           name = ?,
           email = ?,
           address = ?,
@@ -148,6 +149,7 @@ const createOrUpdateCustomer = async (orderData) => {
       ]);
     } else {
       // Create new customer
+      console.log('🔥 [DEBUG] Creating new customer:', { phone: orderData.customer_phone, initialAmount: orderData.total_amount });
       const [result] = await connection.execute(`
         INSERT INTO customers (
           name, phone, email, address, total_orders, total_amount, outstanding_balance
@@ -166,7 +168,7 @@ const createOrUpdateCustomer = async (orderData) => {
     connection.release();
     return customerId;
   } catch (error) {
-    console.error('Error creating/updating customer:', error);
+    console.error('🔥 [ERROR] Error creating/updating customer:', error);
     throw error;
   }
 };
