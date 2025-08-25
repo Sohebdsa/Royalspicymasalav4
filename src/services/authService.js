@@ -13,7 +13,7 @@ export const authService = {
     return response.json();
   },
   logout: async () => {
-    await fetch('/api/auth/logout', {
+    await fetch('http://localhost:5000/api/admin/admin-logout', {
       method: 'POST',
       credentials: 'include'
     });

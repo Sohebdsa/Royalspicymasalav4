@@ -1,19 +1,28 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Menu, LogOut, Settings, User as UserIcon, Bell } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 const Header = ({ toggleSidebar }) => {
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const { logout } = useAuth();
 
-  // Get user data from localStorage (you can replace this with your auth context)
+  // Get user data from auth context
   const user = JSON.parse(localStorage.getItem('admin') || '{}');
 
-  const handleLogout = () => {
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('admin');
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback to basic logout if API call fails
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('admin');
+      navigate('/login');
+    }
   };
 
   const getInitials = (name) => {

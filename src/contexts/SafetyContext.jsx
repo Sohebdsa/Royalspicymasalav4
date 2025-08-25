@@ -75,7 +75,6 @@ export const SafetyProvider = ({ children }) => {
         const data = await response.json();
         if (data.success && data.password) {
           setSafetyPassword(data.password);
-          console.log('Safety password fetched successfully:', data.password);
         }
       } else if (response.status === 404) {
         console.warn('Safety password endpoint not found, using default password');
