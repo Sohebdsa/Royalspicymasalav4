@@ -19,7 +19,7 @@ export const authService = {
     });
   },
   checkAuth: async () => {
-    const response = await fetch('/api/auth/check', {
+    const response = await fetch('http://localhost:5000/api/admin/verify-admin', {
       credentials: 'include'
     });
     if (!response.ok) {
