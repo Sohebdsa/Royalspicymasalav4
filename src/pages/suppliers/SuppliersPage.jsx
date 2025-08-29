@@ -39,7 +39,7 @@ const SuppliersPage = () => {
     try {
       setLoading(true);
       // Fetch all suppliers without pagination limit
-      const response = await fetch('http://localhost:5000/api/suppliers?limit=1000');
+      const response = await fetch('http://localhost:5000/api/suppliers?limit=10000');
       const data = await response.json();
       if (data.success) {
         setSuppliers(data.suppliers || []);

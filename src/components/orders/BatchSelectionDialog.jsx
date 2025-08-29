@@ -38,12 +38,14 @@ export default function BatchSelectionDialog({
     if (isOpen && product?.order_item_id) {
       // Only reinitialize if it's a different product or first time opening
       if (!hasInitialized.current || lastProductId.current !== product.order_item_id) {
-        setSelectedAllocations(currentAllocations || []);
+        // Ensure currentAllocations is an array
+        const allocations = Array.isArray(currentAllocations) ? currentAllocations : [];
+        setSelectedAllocations(allocations);
         hasInitialized.current = true;
         lastProductId.current = product.order_item_id;
       }
     }
-  }, [isOpen, product?.order_item_id]); // Removed currentAllocations from dependencies
+  }, [isOpen, product?.order_item_id, currentAllocations]);
 
   // Reset initialization flag when dialog closes
   useEffect(() => {

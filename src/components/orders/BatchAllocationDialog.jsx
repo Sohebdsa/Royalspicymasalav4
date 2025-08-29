@@ -160,18 +160,24 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           const all = {};
           const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
           
-          // Use Promise.all for concurrent batch fetching
+          // Use Promise.all for concurrent batch fetching with better error handling
           const batchPromises = pids.map(async (pid) => {
             try {
               const res = await fetch(`http://localhost:5000/api/inventory/product/${pid}/batches`);
+              if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+              }
               const { success, data } = await res.json();
-              all[pid] = success
-                ? data.map(b => ({
-                    batch: b.batch,
-                    totalQuantity: parseFloat(b.total_quantity),
-                    unit: b.unit
-                  }))
-                : [];
+              if (success && Array.isArray(data)) {
+                all[pid] = data.map(b => ({
+                  batch: b.batch || b.batch_id,
+                  totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
+                  unit: b.unit || 'kg'
+                })).filter(b => b.batch && b.totalQuantity > 0);
+              } else {
+                console.warn(`No batches found for product ${pid} or invalid response`);
+                all[pid] = [];
+              }
             } catch (error) {
               console.error(`Error fetching batches for product ${pid}:`, error);
               all[pid] = [];
@@ -179,7 +185,10 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           });
           
           await Promise.all(batchPromises);
-          if (!abort) setAvailableBatches(all);
+          if (!abort) {
+            setAvailableBatches(all);
+            console.log('Batches fetched:', all); // Debug log
+          }
         }
       } catch (error) {
         console.error('Error fetching batch allocation data:', error);

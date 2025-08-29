@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -7,7 +7,6 @@ import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-
 
 import {
   Package, Clock, CheckCircle, XCircle, Truck, Eye,
@@ -47,6 +46,7 @@ const formatDate = (dateStr) => {
     return dateStr;
   }
 };
+
 const getDateRange = (selectedDate) => {
   return {
     start: selectedDate,
@@ -111,8 +111,6 @@ const getDateRangeForFilter = (filterType) => {
   }
 };
 
-
-
 // Constants
 const STATUS_CONFIG = {
   pending: {
@@ -159,7 +157,8 @@ const SOURCE_CONFIG = {
   all: { label: 'All Sources', color: 'bg-gray-100 text-gray-700' }
 };
 
-function OrderCard({ order, onViewOrder, onOrderAction }) {
+// Memoized OrderCard Component
+const OrderCard = React.memo(function OrderCard({ order, onViewOrder, onOrderAction }) {
   const statusConfig = STATUS_CONFIG[order.status];
   const sourceConfig = SOURCE_CONFIG[order.order_source];
 
@@ -217,11 +216,10 @@ function OrderCard({ order, onViewOrder, onOrderAction }) {
       </div>
     </div>
   );
-}
+});
 
-
-// Orders List Component
-function OrdersList({ orders, onViewOrder, onOrderAction }) {
+// Memoized Orders List Component
+const OrdersList = React.memo(function OrdersList({ orders, onViewOrder, onOrderAction }) {
   if (orders.length === 0) {
     return (
       <Card>
@@ -252,19 +250,19 @@ function OrdersList({ orders, onViewOrder, onOrderAction }) {
       </CardContent>
     </Card>
   );
-}
+});
 
 // Main Component
 export default function OrdersPage() {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
 
+  // State management
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-
   const [filters, setFilters] = useState({ status: 'all', source: 'all', search: '' });
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD format
-  const [dateFilterType, setDateFilterType] = useState('custom'); // 'custom', 'today', 'yesterday', 'thisWeek', 'thisMonth'
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFilterType, setDateFilterType] = useState('custom');
   const [confirmationDialog, setConfirmationDialog] = useState({ isOpen: false, order: null, action: 'approve' });
   const [isConfirmationLoading, setIsConfirmationLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState({});
@@ -283,7 +281,7 @@ export default function OrdersPage() {
   });
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
 
-  // Real data state
+  // Data states
   const [orders, setOrders] = useState([]);
   const [orderStats, setOrderStats] = useState({
     total: 0,
@@ -300,50 +298,88 @@ export default function OrdersPage() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Ref to store current values for auto-refresh
-  const currentValuesRef = useRef({ selectedDate });
+  // Refs for stable references and cleanup
+  const abortControllerRef = useRef(null);
+  const autoRefreshIntervalRef = useRef(null);
+  const dailyResetIntervalRef = useRef(null);
   const lastFetchTimeRef = useRef(0);
+  const timeoutRefs = useRef(new Set());
+  const fetchInProgressRef = useRef(false);
+  const currentValuesRef = useRef({ selectedDate });
+
+  // Memoized dialog state check
+  const isAnyDialogOpen = useMemo(() => {
+    return isDetailsModalOpen ||
+      confirmationDialog.isOpen ||
+      allocationDialog.isOpen ||
+      paymentConfirmDialog.isOpen ||
+      paymentCollectionDialog.isOpen;
+  }, [
+    isDetailsModalOpen,
+    confirmationDialog.isOpen,
+    allocationDialog.isOpen,
+    paymentConfirmDialog.isOpen,
+    paymentCollectionDialog.isOpen
+  ]);
+
+  // Cleanup function for timeouts
+  const addTimeout = useCallback((timeoutId) => {
+    timeoutRefs.current.add(timeoutId);
+  }, []);
+
+  const clearAllTimeouts = useCallback(() => {
+    timeoutRefs.current.forEach(clearTimeout);
+    timeoutRefs.current.clear();
+  }, []);
 
   // Update ref when values change
   useEffect(() => {
     currentValuesRef.current = { selectedDate };
   }, [selectedDate]);
 
-  // Individual fetch functions
+  // Individual fetch functions with proper error handling and cancellation
   const fetchOrdersOnly = useCallback(async (customDate = selectedDate) => {
-    if (ordersLoading) return;
+    if (ordersLoading || fetchInProgressRef.current) return;
 
     try {
+      fetchInProgressRef.current = true;
       setOrdersLoading(true);
 
-      // Get date range for filtering
-      let { start, end } = getDateRange(customDate);
+      // ✅ Cancel previous request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
 
-      // If using quick filter, get the appropriate date range
+      let { start, end } = getDateRange(customDate);
       if (dateFilterType !== 'custom') {
         const dateRange = getDateRangeForFilter(dateFilterType);
         start = dateRange.start;
         end = dateRange.end;
       }
 
-      // Build query parameters
-      const params = new URLSearchParams({
-        date_from: start,
-        date_to: end
+      const params = new URLSearchParams({ date_from: start, date_to: end });
+
+      const response = await fetch(`http://localhost:5000/api/orders?${params}`, {
+        signal: abortControllerRef.current.signal // ✅ Request cancellation
       });
 
-      const response = await fetch(`http://localhost:5000/api/orders?${params}`);
       const result = await response.json();
       if (result.success) {
         setOrders(result.data);
+        setError(null);
       } else {
         setError('Failed to fetch orders');
       }
     } catch (error) {
-      console.error('Error fetching orders:', error);
-      setError('Failed to fetch orders');
+      if (error.name !== 'AbortError') {
+        console.error('Error fetching orders:', error);
+        setError('Failed to fetch orders');
+      }
     } finally {
       setOrdersLoading(false);
+      fetchInProgressRef.current = false;
+      abortControllerRef.current = null;
     }
   }, [selectedDate, dateFilterType, ordersLoading]);
 
@@ -353,22 +389,14 @@ export default function OrdersPage() {
     try {
       setStatsLoading(true);
 
-      // Get date range for filtering
       let { start, end } = getDateRange(customDate);
-
-      // If using quick filter, get the appropriate date range
       if (dateFilterType !== 'custom') {
         const dateRange = getDateRangeForFilter(dateFilterType);
         start = dateRange.start;
         end = dateRange.end;
       }
 
-      // Build query parameters
-      const params = new URLSearchParams({
-        date_from: start,
-        date_to: end
-      });
-
+      const params = new URLSearchParams({ date_from: start, date_to: end });
       const response = await fetch(`http://localhost:5000/api/orders/stats?${params}`);
       const result = await response.json();
 
@@ -384,24 +412,27 @@ export default function OrdersPage() {
 
   // Combined fetch function with improved debouncing
   const fetchOrders = useCallback(async (customDate = selectedDate, force = false) => {
-    // Debounce: prevent calls within 500ms unless forced
-    const now = Date.now();
-    if (!force && now - lastFetchTimeRef.current < 500) {
+    // ✅ Skip if dialogs are open (unless forced)
+    if (!force && isAnyDialogOpen) {
+      console.log('Skipping fetch: Dialog is open');
       return;
     }
 
-    // Prevent multiple simultaneous calls
-    if (ordersLoading || statsLoading) return;
+    // ✅ Enhanced debouncing
+    const now = Date.now();
+    if (!force && now - lastFetchTimeRef.current < 1000) { // Increased to 1 second
+      return;
+    }
+
+    if (ordersLoading || statsLoading || fetchInProgressRef.current) return;
 
     lastFetchTimeRef.current = now;
 
     try {
-      // Only show main loading for initial load or forced refresh
       if (force || orders.length === 0) {
         setLoading(true);
       }
 
-      // Fetch both in parallel
       await Promise.all([
         fetchOrdersOnly(customDate),
         fetchOrderStatsOnly(customDate)
@@ -413,76 +444,153 @@ export default function OrdersPage() {
         setLoading(false);
       }
     }
-  }, [selectedDate, ordersLoading, statsLoading, fetchOrdersOnly, fetchOrderStatsOnly]);
-
-  const fetchOrderStats = fetchOrderStatsOnly;
-
-  // Load data on component mount
-  useEffect(() => {
-    fetchOrders(selectedDate, true); // Force initial load
-  }, []);
+  }, [
+    selectedDate,
+    ordersLoading,
+    statsLoading,
+    orders.length,
+    fetchOrdersOnly,
+    fetchOrderStatsOnly,
+    isAnyDialogOpen // ✅ Added missing dependency
+  ]);
 
   // Handle date filter type change
-  const handleDateFilterChange = (filterType) => {
+  const handleDateFilterChange = useCallback((filterType) => {
     setDateFilterType(filterType);
 
     if (filterType !== 'custom') {
       const dateRange = getDateRangeForFilter(filterType);
-      setSelectedDate(dateRange.start); // Set to the start date of the range
+      setSelectedDate(dateRange.start);
     }
-  };
+  }, []);
 
-  // Automatic daily reset at 12 AM
-  useEffect(() => {
+  // Auto-refresh functions with dialog state awareness
+  const startAutoRefresh = useCallback(() => {
+    if (autoRefreshIntervalRef.current) {
+      clearInterval(autoRefreshIntervalRef.current);
+    }
+
+    autoRefreshIntervalRef.current = setInterval(() => {
+      // ✅ Skip auto-refresh if dialogs are open
+      if (isAnyDialogOpen) {
+        console.log('Skipping auto-refresh: Dialog is open');
+        return;
+      }
+
+      const { selectedDate: currentDate } = currentValuesRef.current;
+      fetchOrders(currentDate, false);
+    }, 120000); // 2 minutes
+  }, [isAnyDialogOpen, fetchOrders]);
+
+  const stopAutoRefresh = useCallback(() => {
+    if (autoRefreshIntervalRef.current) {
+      clearInterval(autoRefreshIntervalRef.current);
+      autoRefreshIntervalRef.current = null;
+    }
+  }, []);
+
+  // Daily reset logic
+  const startDailyReset = useCallback(() => {
     const checkForDailyReset = () => {
       const now = new Date();
       const lastReset = localStorage.getItem('lastOrdersReset');
       const today = now.toDateString();
 
-      // If it's a new day or first time, reset to today
       if (!lastReset || lastReset !== today) {
-        setSelectedDate(now.toISOString().split('T')[0]);
+        const newDate = now.toISOString().split('T')[0];
+        setSelectedDate(newDate);
         localStorage.setItem('lastOrdersReset', today);
-        fetchOrders(now.toISOString().split('T')[0], true);
+        fetchOrders(newDate, true);
       }
     };
 
-    // Check immediately
     checkForDailyReset();
 
-    // Set up interval to check every minute for date change
-    const interval = setInterval(checkForDailyReset, 60000);
+    if (dailyResetIntervalRef.current) {
+      clearInterval(dailyResetIntervalRef.current);
+    }
 
-    return () => clearInterval(interval);
-  }, []);
+    dailyResetIntervalRef.current = setInterval(checkForDailyReset, 60000);
+  }, [fetchOrders]);
 
-  // Auto-refresh orders every 120 seconds for real-time updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const { selectedDate: currentDate } = currentValuesRef.current;
-      fetchOrders(currentDate, false); // Don't force, let debouncing work
-    }, 120000); // 2 minutes
-
-    return () => clearInterval(interval);
-  }, []); // Empty dependency array to prevent recreating interval
-
-  // Refresh orders when selected date changes
+  // Effect for initial load
   useEffect(() => {
     fetchOrders(selectedDate, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    currentValuesRef.current = { selectedDate };
   }, [selectedDate]);
 
-  // Refresh orders when confirmation dialog closes (for instant updates)
+  // Effect for date changes
   useEffect(() => {
-    if (!confirmationDialog.isOpen && confirmationDialog.order) {
-      // Dialog was just closed after an action, refresh data
+    // Only fetch if we have a selectedDate and it's different from the current date
+    if (selectedDate) {
+      // Use a timeout to prevent immediate fetching on initial render
       const timeoutId = setTimeout(() => {
-        fetchOrders(selectedDate, true); // Force refresh after action
-      }, 100); // Small delay to ensure backend has processed the update
+        fetchOrders(selectedDate, true);
+      }, 100);
 
-      return () => clearTimeout(timeoutId);
+      timeoutRefs.current.add(timeoutId);
+      return () => {
+        clearTimeout(timeoutId);
+        timeoutRefs.current.delete(timeoutId);
+      };
     }
-  }, [confirmationDialog.isOpen, selectedDate]);
+  }, [selectedDate]);
 
+  // Effect for auto-refresh management
+  useEffect(() => {
+    startAutoRefresh();
+    return stopAutoRefresh;
+  }, [startAutoRefresh, stopAutoRefresh]);
+
+  // Effect for daily reset
+  useEffect(() => {
+    startDailyReset();
+    return () => {
+      if (dailyResetIntervalRef.current) {
+        clearInterval(dailyResetIntervalRef.current);
+        dailyResetIntervalRef.current = null;
+      }
+    };
+  }, [startDailyReset]);
+
+  // Effect for cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopAutoRefresh();
+      timeoutRefs.current.forEach(clearTimeout);
+      timeoutRefs.current.clear();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (dailyResetIntervalRef.current) {
+        clearInterval(dailyResetIntervalRef.current);
+      }
+    };
+  }, [stopAutoRefresh]);
+
+  // Optimized confirmation dialog refresh - only when needed
+  useEffect(() => {
+    if (!confirmationDialog.isOpen && confirmationDialog.order && !isAnyDialogOpen) {
+      const timeoutId = setTimeout(() => {
+        fetchOrders(selectedDate, true);
+      }, 500); // ✅ Increased delay
+
+      timeoutRefs.current.add(timeoutId);
+      return () => {
+        clearTimeout(timeoutId);
+        timeoutRefs.current.delete(timeoutId);
+      };
+    }
+  }, [
+    confirmationDialog.isOpen,
+    confirmationDialog.order,
+    isAnyDialogOpen,
+    selectedDate,
+    fetchOrders
+  ]);
 
   // Use real stats or fallback to calculated stats
   const stats = useMemo(() => {
@@ -495,7 +603,7 @@ export default function OrdersPage() {
     }
 
     // Fallback calculation from orders - profit from actual order data
-    const result = { total: orders.length, pending: 0, processing: 0, out_for_delivery: 0, delivered: 0, totalProfit: 0 };
+    const result = { total: orders.length, pending: 0, confirmed: 0, processing: 0, out_for_delivery: 0, delivered: 0, cancelled: 0, totalProfit: 0 };
     orders.forEach(order => {
       result[order.status] = (result[order.status] || 0) + 1;
       // Use actual profit from order data (calculated from inventory costs)
@@ -511,8 +619,6 @@ export default function OrdersPage() {
     if (!orders || orders.length === 0) return [];
 
     let filteredList = [...orders];
-
-    // Status filtering is handled by filters.status below
 
     // Apply additional filters
     if (filters.status !== 'all') {
@@ -625,14 +731,14 @@ export default function OrdersPage() {
         // Refresh orders and close details modal
         await Promise.all([
           fetchOrders(selectedDate),
-          fetchOrderStats(selectedDate)
+          fetchOrderStatsOnly(selectedDate)
         ]);
         setIsDetailsModalOpen(false);
       } else {
         throw new Error(result.message || 'Failed to update order');
       }
     } catch (error) {
-      console.error('🔥 [FRONTEND] Error updating order:', error);
+      console.error('[FRONTEND] Error updating order:', error);
       showError('Failed to update order status. Please try again.');
       // Only close confirmation dialog on error, keep details modal open
       setConfirmationDialog({ isOpen: false, order: null, action: 'approve' });
@@ -736,7 +842,7 @@ export default function OrdersPage() {
       // Refresh data
       await Promise.all([
         fetchOrders(selectedDate),
-        fetchOrderStats(selectedDate)
+        fetchOrderStatsOnly(selectedDate)
       ]);
       setIsDetailsModalOpen(false);
 
@@ -809,7 +915,7 @@ export default function OrdersPage() {
       // Refresh data
       await Promise.all([
         fetchOrders(selectedDate),
-        fetchOrderStats(selectedDate)
+        fetchOrderStatsOnly(selectedDate)
       ]);
       setIsDetailsModalOpen(false);
 
@@ -836,6 +942,13 @@ export default function OrdersPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Auto-refresh status indicator */}
+      {isAnyDialogOpen && (
+        <div className="fixed top-4 right-4 bg-yellow-100 border border-yellow-300 rounded-lg p-2 text-sm text-yellow-800 z-50">
+          Auto-refresh paused while dialog is open
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
@@ -889,8 +1002,10 @@ export default function OrdersPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-blue-600" />
-                    <span className="font-medium mt-3 text-blue-800">
-                      Showing data for: {formatDate(selectedDate)}
+                    <span className="font-medium text-blue-800">
+                      {dateFilterType === 'custom' 
+                        ? `Showing data for: ${formatDate(selectedDate)}` 
+                        : `Showing ${dateFilterType}: ${dateFilterType === 'thisWeek' ? getDateRangeForFilter('thisWeek').start : selectedDate} to ${getDateRangeForFilter(dateFilterType).end}`}
                     </span>
                   </div>
                   <div className="text-sm text-blue-600">
@@ -925,7 +1040,7 @@ export default function OrdersPage() {
                   }
                 }}
               >
-                <CardContent className="p-4 mt-3 flex items-center justify-between">
+                <CardContent className="p-4 flex items-center justify-between">
                   <div>
                     <p className="text-sm text-gray-600">{stat.label}</p>
                     <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
@@ -935,8 +1050,6 @@ export default function OrdersPage() {
               </Card>
             ))}
           </div>
-
-
 
           {/* Search and Filter Section */}
           <div className="mt-4">
@@ -953,7 +1066,7 @@ export default function OrdersPage() {
                     <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   </div>
                   <Select value={filters.status} onValueChange={value => updateFilter('status', value)}>
-                    <SelectTrigger className="w-100">
+                    <SelectTrigger className="w-40">
                       <SelectValue placeholder="Filter by Status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -986,17 +1099,16 @@ export default function OrdersPage() {
                       max={new Date().toISOString().split('T')[0]}
                     />
                     <Select value={dateFilterType} onValueChange={handleDateFilterChange}>
-                      <SelectTrigger className="w-fit min-w-[200px] max-w-[300px] flex items-center justify-between px-3 py-2 whitespace-nowrap">
+                      <SelectTrigger className="w-fit min-w-[120px]">
                         <SelectValue placeholder="Quick Filter" />
                       </SelectTrigger>
-                      <SelectContent className="w-fit min-w-[200px] max-w-[300px] overflow-hidden">
-                        <SelectItem value="today" className="whitespace-nowrap">Today</SelectItem>
-                        <SelectItem value="yesterday" className="whitespace-nowrap">Yesterday</SelectItem>
-                        <SelectItem value="thisWeek" className="whitespace-nowrap">This Week</SelectItem>
-                        <SelectItem value="thisMonth" className="whitespace-nowrap">This Month</SelectItem>
+                      <SelectContent>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="yesterday">Yesterday</SelectItem>
+                        <SelectItem value="thisWeek">This Week</SelectItem>
+                        <SelectItem value="thisMonth">This Month</SelectItem>
                       </SelectContent>
                     </Select>
-
                   </div>
                 </div>
               </CardContent>
@@ -1004,7 +1116,6 @@ export default function OrdersPage() {
           </div>
 
           <div className="mt-4">
-
             <OrdersList
               orders={filteredOrders}
               onViewOrder={handleViewOrder}
@@ -1022,8 +1133,8 @@ export default function OrdersPage() {
                 setIsDetailsModalOpen(false);
               }}
               onRefresh={() => {
-                fetchOrders(selectedDate); // Actually refresh the orders data
-                fetchOrderStats(selectedDate); // Refresh the stats as well
+                fetchOrders(selectedDate);
+                fetchOrderStatsOnly(selectedDate);
                 showSuccess('Order updated successfully');
               }}
             />
@@ -1060,7 +1171,7 @@ export default function OrdersPage() {
                       showSuccess('Order moved to Processing');
                       await Promise.all([
                         fetchOrders(selectedDate),
-                        fetchOrderStats(selectedDate)
+                        fetchOrderStatsOnly(selectedDate)
                       ]);
                     } else {
                       showError(result.message || 'Failed to update status');
