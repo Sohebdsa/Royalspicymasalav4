@@ -19,11 +19,13 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
+
 // Safe currency formatting function
 const formatCurrency = (amount) => {
   const numAmount = Number(amount) || 0;
   return `₹${numAmount.toFixed(2)}`;
 };
+
 
 export default function OrderConfirmationDialog({
   isOpen,
@@ -31,7 +33,8 @@ export default function OrderConfirmationDialog({
   onConfirm,
   order,
   action,
-  isLoading = false
+  isLoading = false,
+  onSuccess = null
 }) {
   
   const getActionDetails = (action) => {
@@ -95,6 +98,7 @@ export default function OrderConfirmationDialog({
     }
   };
 
+
   const getStatusIcon = (status) => {
     const icons = {
       pending: <Clock className="h-4 w-4" />,
@@ -106,6 +110,7 @@ export default function OrderConfirmationDialog({
     };
     return icons[status] || <Clock className="h-4 w-4" />;
   };
+
 
   const getStatusColor = (status) => {
     const colors = {
@@ -119,7 +124,9 @@ export default function OrderConfirmationDialog({
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+
   const actionDetails = getActionDetails(action);
+
 
   return (
     <AlertDialog open={isOpen} onOpenChange={onClose}>
@@ -158,6 +165,7 @@ export default function OrderConfirmationDialog({
               </div>
             </div>
 
+
             {action === 'cancel' && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                 <div className="flex items-center gap-2">
@@ -183,7 +191,19 @@ export default function OrderConfirmationDialog({
             onClick={async (e) => {
               e.preventDefault();
               e.stopPropagation();
-              await onConfirm();
+              
+              try {
+                await onConfirm();
+                
+                // Call onSuccess callback after successful confirmation
+                if (onSuccess) {
+                  onSuccess();
+                }
+              } catch (error) {
+                // Don't call onSuccess if there's an error
+                console.error('Action failed:', error);
+                // Error handling is done by the parent component's onConfirm function
+              }
             }}
             disabled={isLoading}
             className={actionDetails.confirmClass}

@@ -479,8 +479,9 @@ export default function OrdersPage() {
 
       const { selectedDate: currentDate } = currentValuesRef.current;
       fetchOrders(currentDate, false);
-    }, 120000); // 2 minutes
-  }, [isAnyDialogOpen, fetchOrders]);
+      fetchOrderStatsOnly(currentDate);
+    }, 60000); // Reduced to 1 minute for more frequent updates
+  }, [isAnyDialogOpen, fetchOrders, fetchOrderStatsOnly]);
 
   const stopAutoRefresh = useCallback(() => {
     if (autoRefreshIntervalRef.current) {
@@ -516,8 +517,7 @@ export default function OrdersPage() {
   // Effect for initial load
   useEffect(() => {
     fetchOrders(selectedDate, true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+  }, []);
   useEffect(() => {
     currentValuesRef.current = { selectedDate };
   }, [selectedDate]);
@@ -576,7 +576,8 @@ export default function OrdersPage() {
     if (!confirmationDialog.isOpen && confirmationDialog.order && !isAnyDialogOpen) {
       const timeoutId = setTimeout(() => {
         fetchOrders(selectedDate, true);
-      }, 500); // ✅ Increased delay
+        fetchOrderStatsOnly(selectedDate);
+      }, 500); // Increased delay to ensure dialog is fully closed
 
       timeoutRefs.current.add(timeoutId);
       return () => {
@@ -589,7 +590,8 @@ export default function OrdersPage() {
     confirmationDialog.order,
     isAnyDialogOpen,
     selectedDate,
-    fetchOrders
+    fetchOrders,
+    fetchOrderStatsOnly
   ]);
 
   // Use real stats or fallback to calculated stats
@@ -725,15 +727,17 @@ export default function OrdersPage() {
       if (result.success) {
         showSuccess(`Order ${action}d successfully - ${order.order_number}`);
 
-        // Close confirmation dialog
+        // Close confirmation dialog first
         setConfirmationDialog({ isOpen: false, order: null, action: 'approve' });
 
-        // Refresh orders and close details modal
-        await Promise.all([
-          fetchOrders(selectedDate),
-          fetchOrderStatsOnly(selectedDate)
-        ]);
-        setIsDetailsModalOpen(false);
+        // Add a small delay to ensure dialog is fully closed before refreshing
+        setTimeout(async () => {
+          await Promise.all([
+            fetchOrders(selectedDate, true),
+            fetchOrderStatsOnly(selectedDate)
+          ]);
+          setIsDetailsModalOpen(false);
+        }, 100);
       } else {
         throw new Error(result.message || 'Failed to update order');
       }
@@ -1003,8 +1007,8 @@ export default function OrdersPage() {
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-blue-600" />
                     <span className="font-medium text-blue-800">
-                      {dateFilterType === 'custom' 
-                        ? `Showing data for: ${formatDate(selectedDate)}` 
+                      {dateFilterType === 'custom'
+                        ? `Showing data for: ${formatDate(selectedDate)}`
                         : `Showing ${dateFilterType}: ${dateFilterType === 'thisWeek' ? getDateRangeForFilter('thisWeek').start : selectedDate} to ${getDateRangeForFilter(dateFilterType).end}`}
                     </span>
                   </div>
@@ -1133,7 +1137,7 @@ export default function OrdersPage() {
                 setIsDetailsModalOpen(false);
               }}
               onRefresh={() => {
-                fetchOrders(selectedDate);
+                fetchOrders(selectedDate, true);
                 fetchOrderStatsOnly(selectedDate);
                 showSuccess('Order updated successfully');
               }}
@@ -1148,6 +1152,12 @@ export default function OrdersPage() {
               order={confirmationDialog.order}
               action={confirmationDialog.action}
               isLoading={isConfirmationLoading}
+              onSuccess={() => {
+                setTimeout(() => {
+                  fetchOrders(selectedDate, true);
+                  fetchOrderStatsOnly(selectedDate);
+                }, 500);
+              }}
             />
           )}
 
