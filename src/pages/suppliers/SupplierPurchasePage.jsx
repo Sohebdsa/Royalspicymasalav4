@@ -26,11 +26,19 @@ const SupplierPurchasePage = () => {
   const [purchaseData, setPurchaseData] = useState({
     purchase_date: new Date().toISOString().split('T')[0],
     items: [],
+    other_charges: [],
     payment_option: 'full',
     custom_amount: '',
     payment_method: 'cash',
     payment_date: new Date().toISOString().split('T')[0],
     receipt_image: null
+  });
+
+  // Current other charge being added
+  const [currentCharge, setCurrentCharge] = useState({
+    name: '',
+    type: 'fixed', // 'fixed' or 'percentage'
+    value: ''
   });
 
   // Current item being added
@@ -146,6 +154,14 @@ const SupplierPurchasePage = () => {
     }
   };
 
+  const handleCurrentChargeChange = (e) => {
+    const { name, value } = e.target;
+    setCurrentCharge(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   const handlePurchaseDataChange = (e) => {
     const { name, value } = e.target;
     setPurchaseData(prev => ({
@@ -178,7 +194,7 @@ const SupplierPurchasePage = () => {
     }
 
     const quantity = parseFloat(currentItem.quantity);
-    const rate = parseInt(currentItem.rate);
+    const rate = parseFloat(currentItem.rate);
     const gst = parseFloat(currentItem.gst);
 
     if (isNaN(quantity) || quantity <= 0) {
@@ -187,7 +203,7 @@ const SupplierPurchasePage = () => {
     }
 
     if (isNaN(rate) || rate <= 0) {
-      showError('Rate cannot be 0 and must be a valid integer');
+      showError('Rate cannot be 0 and must be a valid number');
       return;
     }
 
@@ -236,6 +252,54 @@ const SupplierPurchasePage = () => {
     showSuccess('Item added successfully');
   };
 
+  const addCharge = () => {
+    // Validation
+    if (!currentCharge.name || !currentCharge.value) {
+      showError('Please fill charge name and value');
+      return;
+    }
+
+    const value = parseFloat(currentCharge.value);
+    if (isNaN(value) || value <= 0) {
+      showError('Please enter a valid charge value');
+      return;
+    }
+
+    // Check if charge with same name already exists
+    const existingChargeIndex = purchaseData.other_charges.findIndex(charge => charge.name === currentCharge.name);
+    if (existingChargeIndex !== -1) {
+      showError('Charge with this name already exists');
+      return;
+    }
+
+    const newCharge = {
+      ...currentCharge,
+      value
+    };
+
+    setPurchaseData(prev => ({
+      ...prev,
+      other_charges: [...prev.other_charges, newCharge]
+    }));
+
+    // Reset current charge
+    setCurrentCharge({
+      name: '',
+      type: 'fixed',
+      value: ''
+    });
+
+    showSuccess('Charge added successfully');
+  };
+
+  const removeCharge = (index) => {
+    setPurchaseData(prev => ({
+      ...prev,
+      other_charges: prev.other_charges.filter((_, i) => i !== index)
+    }));
+    showSuccess('Charge removed successfully');
+  };
+
   const removeItem = (index) => {
     setPurchaseData(prev => ({
       ...prev,
@@ -247,9 +311,21 @@ const SupplierPurchasePage = () => {
   const calculateTotals = () => {
     const subtotal = purchaseData.items.reduce((sum, item) => sum + item.subtotal, 0);
     const totalGst = purchaseData.items.reduce((sum, item) => sum + item.gst_amount, 0);
-    const grandTotal = purchaseData.items.reduce((sum, item) => sum + item.total, 0);
+    const itemsTotal = purchaseData.items.reduce((sum, item) => sum + item.total, 0);
     
-    return { subtotal, totalGst, grandTotal };
+    // Calculate other charges
+    let otherChargesTotal = 0;
+    purchaseData.other_charges.forEach(charge => {
+      if (charge.type === 'fixed') {
+        otherChargesTotal += charge.value;
+      } else if (charge.type === 'percentage') {
+        otherChargesTotal += (itemsTotal * charge.value) / 100;
+      }
+    });
+    
+    const grandTotal = itemsTotal + otherChargesTotal;
+    
+    return { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal };
   };
 
   const getPaymentAmount = () => {
@@ -283,7 +359,7 @@ const SupplierPurchasePage = () => {
     try {
       setLoading(true);
       
-      const { subtotal, totalGst, grandTotal } = calculateTotals();
+      const { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal } = calculateTotals();
       const paymentAmount = getPaymentAmount();
       
       // Create FormData for file upload
@@ -292,8 +368,11 @@ const SupplierPurchasePage = () => {
       formData.append('bill_number', billNumber);
       formData.append('purchase_date', purchaseData.purchase_date);
       formData.append('items', JSON.stringify(currentItems));
+      formData.append('other_charges', JSON.stringify(purchaseData.other_charges));
       formData.append('subtotal', subtotal.toString());
       formData.append('total_gst', totalGst.toString());
+      formData.append('items_total', itemsTotal.toString());
+      formData.append('other_charges_total', otherChargesTotal.toString());
       formData.append('grand_total', grandTotal.toString());
       formData.append('payment_option', purchaseData.payment_option);
       formData.append('payment_amount', paymentAmount.toString());
@@ -335,7 +414,7 @@ const SupplierPurchasePage = () => {
     );
   }
 
-  const { subtotal, totalGst, grandTotal } = calculateTotals();
+  const { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal } = calculateTotals();
   const paymentAmount = getPaymentAmount();
 
   return (
@@ -489,10 +568,17 @@ const SupplierPurchasePage = () => {
                     name="rate"
                     value={currentItem.rate}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/[^\d]/g, ''); // Only allow digits
+                      const value = e.target.value.replace(/[^\d.]/g, ''); // Allow digits and decimal point
+                      // Ensure only one decimal point and max 2 decimal places
+                      if (value.includes('.')) {
+                        const parts = value.split('.');
+                        if (parts[1] && parts[1].length > 2) {
+                          return;
+                        }
+                      }
                       handleCurrentItemChange({ target: { name: 'rate', value } });
                     }}
-                    placeholder="0"
+                    placeholder="0.00"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
                   />
                 </div>
@@ -576,19 +662,19 @@ const SupplierPurchasePage = () => {
                           {item.unit}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ₹{Math.round(item.rate).toLocaleString('en-IN')}
+                          ₹{parseFloat(item.rate).toFixed(2).toLocaleString('en-IN')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {item.gst}%
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ₹{Math.round(item.subtotal).toLocaleString('en-IN')}
+                          ₹{parseFloat(item.subtotal).toFixed(2).toLocaleString('en-IN')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ₹{Math.round(item.gst_amount).toLocaleString('en-IN')}
+                          ₹{parseFloat(item.gst_amount).toFixed(2).toLocaleString('en-IN')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          ₹{Math.round(item.total).toLocaleString('en-IN')}
+                          ₹{parseFloat(item.total).toFixed(2).toLocaleString('en-IN')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <button
@@ -611,15 +697,25 @@ const SupplierPurchasePage = () => {
                     <div className="w-64 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-medium">₹{Math.round(subtotal).toLocaleString('en-IN')}</span>
+                        <span className="font-medium">₹{parseFloat(subtotal).toFixed(2).toLocaleString('en-IN')}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Total GST:</span>
-                        <span className="font-medium">₹{Math.round(totalGst).toLocaleString('en-IN')}</span>
+                        <span className="font-medium">₹{parseFloat(totalGst).toFixed(2).toLocaleString('en-IN')}</span>
                       </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Items Total:</span>
+                        <span className="font-medium">₹{parseFloat(itemsTotal).toFixed(2).toLocaleString('en-IN')}</span>
+                      </div>
+                      {purchaseData.other_charges.length > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Other Charges:</span>
+                          <span className="font-medium">₹{parseFloat(otherChargesTotal).toFixed(2).toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-lg font-bold border-t border-gray-300 pt-2">
                         <span>Grand Total:</span>
-                        <span className="text-orange-600">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                        <span className="text-orange-600">₹{parseFloat(grandTotal).toFixed(2).toLocaleString('en-IN')}</span>
                       </div>
                     </div>
                   </div>
@@ -631,6 +727,151 @@ const SupplierPurchasePage = () => {
               <div className="text-center py-8 text-gray-500">
                 <ShoppingCartIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
                 <p>No items added yet. Add products to continue.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Other Charges Section */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+              <CurrencyRupeeIcon className="h-5 w-5 text-orange-600 mr-2" />
+              Other Charges
+            </h2>
+
+            {/* Add Charge Form */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                {/* Charge Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Charge Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={currentCharge.name}
+                    onChange={handleCurrentChargeChange}
+                    placeholder="e.g., Delivery Fee"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+
+                {/* Charge Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="type"
+                    value={currentCharge.type}
+                    onChange={handleCurrentChargeChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                  >
+                    <option value="fixed">Fixed Amount</option>
+                    <option value="percentage">Percentage</option>
+                  </select>
+                </div>
+
+                {/* Charge Value */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Value <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="value"
+                    value={currentCharge.value}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^\d.]/g, ''); // Allow digits and decimal point
+                      // Ensure only one decimal point and max 2 decimal places
+                      if (value.includes('.')) {
+                        const parts = value.split('.');
+                        if (parts[1] && parts[1].length > 2) {
+                          return;
+                        }
+                      }
+                      handleCurrentChargeChange({ target: { name: 'value', value } });
+                    }}
+                    placeholder={currentCharge.type === 'percentage' ? '0.00%' : '0.00'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+
+                {/* Add Button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={addCharge}
+                    className="w-full px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 focus:outline-none focus:ring-1 focus:ring-orange-500 flex items-center justify-center"
+                  >
+                    <PlusIcon className="h-4 w-4 mr-1" />
+                    Add Charge
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Charges List */}
+            {purchaseData.other_charges.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Charge Name
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Type
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Value
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Amount (₹)
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {purchaseData.other_charges.map((charge, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {charge.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {charge.type === 'fixed' ? 'Fixed Amount' : `${charge.value}%`}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {charge.value}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          ₹{charge.type === 'fixed' ?
+                            parseFloat(charge.value).toFixed(2).toLocaleString('en-IN') :
+                            parseFloat((itemsTotal * charge.value) / 100).toFixed(2).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button
+                            type="button"
+                            onClick={() => removeCharge(index)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
+                            title="Remove charge"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {purchaseData.other_charges.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <CurrencyRupeeIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                <p>No other charges added yet.</p>
               </div>
             )}
           </div>
@@ -689,16 +930,16 @@ const SupplierPurchasePage = () => {
                 <div className="mt-4 p-3 bg-gray-50 rounded-md">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Grand Total:</span>
-                    <span className="font-medium">₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                    <span className="font-medium">₹{parseFloat(grandTotal).toFixed(2).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold text-orange-600 mt-1">
                     <span>Payment Amount:</span>
-                    <span>₹{Math.round(paymentAmount).toLocaleString('en-IN')}</span>
+                    <span>₹{parseFloat(paymentAmount).toFixed(2).toLocaleString('en-IN')}</span>
                   </div>
                   {paymentAmount < grandTotal && (
                     <div className="flex justify-between text-sm text-red-600 mt-1">
                       <span>Remaining:</span>
-                      <span>₹{Math.round(grandTotal - paymentAmount).toLocaleString('en-IN')}</span>
+                      <span>₹{parseFloat(grandTotal - paymentAmount).toFixed(2).toLocaleString('en-IN')}</span>
                     </div>
                   )}
                 </div>

@@ -247,13 +247,38 @@ const BillCard = ({ bill, onPaymentUpdate }) => {
                   {/* Bill Summary */}
                   <div className="border-t border-gray-200 mt-4 pt-4 space-y-1">
                     <div className="flex justify-between text-sm">
-                      <span>Subtotal:</span>
-                      <span>₹{parseFloat(bill.subtotal || 0).toFixed(2)}</span>
+                      <span>Items Total:</span>
+                      <span>₹{parseFloat(bill.items_total || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span>GST:</span>
                       <span>₹{parseFloat(bill.total_gst || 0).toFixed(2)}</span>
                     </div>
+                    {/* Always show Other Charges section */}
+                    {(bill.other_charges && Array.isArray(bill.other_charges) && bill.other_charges.length > 0) ? (
+                      <>
+                        {bill.other_charges.map((charge, index) => (
+                          <div key={index} className="flex justify-between text-sm">
+                            <span>{charge.name}:</span>
+                            <span>
+                              {charge.type === 'percentage'
+                                ? `${charge.value}% (₹${parseFloat((bill.items_total || 0) * charge.value / 100).toFixed(2)})`
+                                : `₹${parseFloat(charge.value || 0).toFixed(2)}`
+                              }
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-medium">
+                          <span>Other Charges:</span>
+                          <span>₹{parseFloat(bill.other_charges_total || 0).toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>Other Charges:</span>
+                        <span>₹0.00</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm font-semibold border-t border-gray-300 pt-1">
                       <span>Total:</span>
                       <span>₹{parseFloat(bill.grand_total || 0).toFixed(2)}</span>

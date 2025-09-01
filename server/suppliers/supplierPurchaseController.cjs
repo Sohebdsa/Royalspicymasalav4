@@ -55,14 +55,17 @@ const getSupplierPurchases = async (req, res) => {
 
     // Main query
     const mainQuery = `
-      SELECT 
+      SELECT
         sp.id,
         sp.supplier_id,
         sp.bill_number,
         sp.purchase_date,
         sp.items,
+        sp.other_charges,
         sp.subtotal,
         sp.total_gst,
+        sp.items_total,
+        sp.other_charges_total,
         sp.grand_total,
         sp.payment_option,
         sp.payment_amount,
@@ -108,9 +111,21 @@ const getSupplierPurchases = async (req, res) => {
         }
       }
 
+      // Parse other charges safely
+      let parsedOtherCharges = [];
+      if (purchase.other_charges) {
+        try {
+          parsedOtherCharges = typeof purchase.other_charges === 'string' ? JSON.parse(purchase.other_charges) : purchase.other_charges;
+        } catch (parseError) {
+          console.error('Error parsing other charges for purchase:', purchase.id, parseError);
+          parsedOtherCharges = [];
+        }
+      }
+
       return {
         ...purchase,
         items: parsedItems,
+        other_charges: parsedOtherCharges,
         payment_records: paymentRecords || []
       };
     }));
@@ -173,8 +188,11 @@ const createSupplierPurchase = async (req, res) => {
       bill_number,
       purchase_date,
       items: itemsRaw,
+      other_charges: otherChargesRaw,
       subtotal,
       total_gst,
+      items_total,
+      other_charges_total,
       grand_total,
       payment_option,
       payment_amount,
@@ -191,6 +209,15 @@ const createSupplierPurchase = async (req, res) => {
         success: false,
         message: 'Invalid items data format'
       });
+    }
+
+    // Parse other charges if it's a string (from FormData)
+    let other_charges = [];
+    try {
+      other_charges = typeof otherChargesRaw === 'string' ? JSON.parse(otherChargesRaw) : otherChargesRaw;
+    } catch (parseError) {
+      // If parsing fails, use empty array
+      other_charges = [];
     }
 
     // Validate required fields
@@ -219,8 +246,11 @@ const createSupplierPurchase = async (req, res) => {
         bill_number,
         purchase_date,
         items,
+        other_charges,
         subtotal,
         total_gst,
+        items_total,
+        other_charges_total,
         grand_total,
         payment_option,
         payment_amount,
@@ -229,7 +259,7 @@ const createSupplierPurchase = async (req, res) => {
         payment_date,
         receipt_image,
         status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -237,8 +267,11 @@ const createSupplierPurchase = async (req, res) => {
       bill_number,
       purchase_date,
       JSON.stringify(items),
+      JSON.stringify(other_charges),
       Math.round(parseFloat(subtotal)),
       Math.round(parseFloat(total_gst)),
+      Math.round(parseFloat(items_total)),
+      Math.round(parseFloat(other_charges_total)),
       Math.round(parseFloat(grand_total)),
       payment_option,
       Math.round(parseFloat(payment_amount)),
