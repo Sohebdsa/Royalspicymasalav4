@@ -69,7 +69,7 @@ const SupplierPurchaseHistoryPage = () => {
         setSuppliers([]);
       }
     } catch (error) {
-      console.error('Error fetching suppliers:', error);
+      console.error('Error fetching supplierss:', error);
       setSuppliers([]);
     }
   };
