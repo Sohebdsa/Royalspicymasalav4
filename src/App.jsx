@@ -21,6 +21,7 @@ import SupplierPurchasePage from './pages/suppliers/SupplierPurchasePage';
 import SupplierPurchaseHistoryPage from './pages/suppliers/SupplierPurchaseHistoryPage';
 import SupplierDetailPage from './pages/suppliers/SupplierDetailPage';
 import CaterersPage from './pages/caterers/CaterersPage';
+import CatererSellPage from './pages/caterers/CatererSellPage';
 import CatererOrdersPage from './pages/caterer-orders/CatererOrdersPage';
 import CatererHistoryPage from './pages/caterer-orders/caterer-history/CatererHistoryPage';
 import FinancialTrackerPage from './pages/financial-tracker/FinancialTrackerPage';
@@ -51,6 +52,7 @@ function App() {
                     <Route path="orders/customer-history" element={<CustomerHistoryPage />} />
                     <Route path="orders/customer-history/:customerId" element={<CustomerDetailPage />} />
 
+
                     <Route path="inventory" element={<InventoryPage />} />
                     <Route path="inventory/history" element={<InventoryHistoryPage />} />
                     <Route path="products" element={<ProductsPage />} />
@@ -59,6 +61,7 @@ function App() {
                     <Route path="suppliers/:supplierId/details" element={<SupplierDetailPage />} />
                     <Route path="suppliers/purchase-history" element={<SupplierPurchaseHistoryPage />} />
                     <Route path="caterers" element={<CaterersPage />} />
+                    <Route path="caterers/:catererId/sell" element={<CatererSellPage />} />
                     <Route path="caterer-orders" element={<CatererOrdersPage />} />
                     <Route path="caterer-orders/caterer-history" element={<CatererHistoryPage />} />
                     <Route path="financial-tracker" element={<FinancialTrackerPage />} />

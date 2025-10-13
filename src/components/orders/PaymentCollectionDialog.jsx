@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '../../components/ui/dialog';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+} from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
   CreditCard, AlertCircle, IndianRupee,
   Calculator, CheckCircle, Loader2, Receipt, FileImage, User
@@ -19,16 +19,6 @@ export default function PaymentCollectionDialog({
   selectedBill: initialSelectedBill = null,
   isLoading = false
 }) {
-  // Debug incoming data
-  useEffect(() => {
-    if (isOpen) {
-      console.log('🔔 [DEBUG] PaymentCollectionDialog props:', {
-        customer,
-        bills,
-        initialSelectedBill
-      });
-    }
-  }, [isOpen, customer, bills, initialSelectedBill]);
 
   // Internal state
   const [step, setStep] = useState(1);
@@ -154,9 +144,9 @@ export default function PaymentCollectionDialog({
         <Card className="border-green-200 bg-green-50 mb-6">
           <CardContent className="p-5 flex justify-between items-center">
             <div>
-              <div className="text-sm text-gray-700">Total Outstanding</div>
+              <div className="text-sm text-gray-700">Total bill Amount</div>
               <div className="text-2xl font-bold text-green-700">
-                {formatCurrency(totalOutstanding)}
+                {formatCurrency(selectedBill.pending_amount)}
               </div>
             </div>
             {selectedBill && (

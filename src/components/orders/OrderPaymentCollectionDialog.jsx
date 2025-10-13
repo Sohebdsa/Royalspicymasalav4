@@ -30,10 +30,9 @@ export default function OrderPaymentCollectionDialog({
   // Ensure customer is an object, not null or undefined
   const safeCustomer = customer || {};
 
-  // Compute combined max
+  // Compute order amount only (for specific order payment)
   const orderAmount = parseFloat(order.total_amount || 0);
-  const custOutstanding = parseFloat(outstanding || 0);
-  const maxAmountTotal = orderAmount + custOutstanding;
+  const maxAmountTotal = orderAmount; // Only allow payment up to order amount
 
   const [paymentData, setPaymentData] = useState({
     amount: '',
@@ -68,7 +67,7 @@ export default function OrderPaymentCollectionDialog({
     if (val > maxAmountTotal) {
       setErrors(err => ({
         ...err,
-        amount: `Cannot exceed ₹${maxAmountTotal.toFixed(2)} (order + outstanding)`
+        amount: `Cannot exceed order amount of ₹${maxAmountTotal.toFixed(2)}`
       }));
     }
   };
@@ -90,7 +89,7 @@ export default function OrderPaymentCollectionDialog({
     const newErr = {};
     const amt = parseFloat(paymentData.amount || 0);
     if (amt <= 0) newErr.amount = 'Amount must be > 0';
-    if (amt > maxAmountTotal) newErr.amount = `Cannot exceed ₹${maxAmountTotal.toFixed(2)}`;
+    if (amt > maxAmountTotal) newErr.amount = `Cannot exceed order amount of ₹${maxAmountTotal.toFixed(2)}`;
     if (['upi','bank_transfer'].includes(paymentData.paymentMethod)) {
       if (!paymentData.referenceNumber?.trim()) {
         newErr.referenceNumber = 'Reference required';
@@ -134,7 +133,7 @@ export default function OrderPaymentCollectionDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="mb-6">
           <Card className="border-blue-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Order Total</CardTitle>
@@ -143,15 +142,8 @@ export default function OrderPaymentCollectionDialog({
               <div className="text-2xl font-bold text-blue-600">
                 {formatCurrency(orderAmount)}
               </div>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Customer Outstanding</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">
-                {formatCurrency(custOutstanding)}
+              <div className="text-sm text-gray-600 mt-1">
+                Payment for this order only
               </div>
             </CardContent>
           </Card>
@@ -182,7 +174,7 @@ export default function OrderPaymentCollectionDialog({
               </div>
             )}
             <div className="text-sm text-gray-600">
-              Max: {formatCurrency(maxAmountTotal)}
+              Max: {formatCurrency(maxAmountTotal)} (order amount)
             </div>
             <div className="flex gap-2 mt-2">
               <Button

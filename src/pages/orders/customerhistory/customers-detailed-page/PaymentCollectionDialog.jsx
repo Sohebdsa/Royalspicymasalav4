@@ -36,29 +36,39 @@ export default function PaymentCollectionDialog({
   const [amountDistribution, setAmountDistribution] = useState({});
 
   const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString('en-IN')}`;
-
+  
+  console.log('DEBUG selectedBill:', selectedBill);
   // Reset form when dialog opens/closes
-  useEffect(() => {
-    if (isOpen) {
-      setStep(1);
-      setPaymentType(selectedBill ? 'bill-specific' : 'general');
-      setPaymentData({
-        amount: '',
-        paymentMethod: 'cash',
-        referenceNumber: '',
-        notes: '',
-        receiptFile: null
-      });
-      setSelectedBillForPayment(selectedBill);
-      setSelectedBillsForDistribution([]);
-      setAmountDistribution({});
-      setErrors({});
-    }
-  }, [isOpen, selectedBill]);
+  // useEffect(() => {
+  //   if (isOpen) {
+  //     console.log('DEBUG: PaymentCollectionDialog opened with:', {
+  //       customer,
+  //       bills: bills.length,
+  //       selectedBill,
+  //       billsData: bills,
+  //       isTemporaryBill: selectedBill && selectedBill.id?.toString().startsWith('temp-')
+  //     });
+  //     setStep(1);
+  //     setPaymentType(selectedBill ? 'bill-specific' : 'general');
+  //     setPaymentData({
+  //       amount: '',
+  //       paymentMethod: 'cash',
+  //       referenceNumber: '',
+  //       notes: '',
+  //       receiptFile: null
+  //     });
+  //     setSelectedBillForPayment(selectedBill);
+  //     setSelectedBillsForDistribution([]);
+  //     setAmountDistribution({});
+  //     setErrors({});
+  //   }
+  // }, [isOpen, selectedBill]);
 
   // Calculate totals
   const totalOutstanding = bills.reduce((sum, bill) => sum + parseFloat(bill.pending_amount || 0), 0);
   const pendingBills = bills.filter(bill => parseFloat(bill.pending_amount || 0) > 0);
+
+  const primaryAmount = parseFloat(selectedBill.pending_amount || 0);
 
   // Calculate remaining amount after payment
   const getRemainingAmount = () => {
@@ -117,8 +127,8 @@ export default function PaymentCollectionDialog({
       if (amount > maxAmount) {
         newErrors.amount = `Amount cannot exceed ${formatCurrency(maxAmount)}`;
       }
-    } else if (amount > totalOutstanding) {
-      newErrors.amount = `Amount cannot exceed total outstanding ${formatCurrency(totalOutstanding)}`;
+    } else if (amount > primaryAmount) {
+      newErrors.amount = `Amount cannot exceed ${formatCurrency(primaryAmount)}`;
     }
 
     if (paymentData.paymentMethod === 'upi' || paymentData.paymentMethod === 'bank_transfer') {
@@ -170,21 +180,28 @@ export default function PaymentCollectionDialog({
               <CreditCard className="h-6 w-6 text-green-600" />
             </div>
             <div>
-              <div className="font-bold">Collect Payment</div>
+              <div className="font-bold">Collecttt Payment</div>
               <div className="text-sm font-normal text-gray-600">{customer?.name}</div>
             </div>
           </DialogTitle>
           <div className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
             <div>
-              <div className="text-sm text-gray-600">Total Outstanding</div>
-              <div className="text-2xl font-bold text-red-600">{formatCurrency(totalOutstanding)}</div>
-            </div>
-            {selectedBill && (
-              <div className="text-right">
-                <div className="text-sm text-gray-600">This Bill</div>
-                <div className="text-xl font-bold text-blue-600">{formatCurrency(selectedBill.pending_amount)}</div>
+              <div className="text-sm text-gray-600">
+                {selectedBill ? 'Bill Amount' : 'Total Outstanding'}
               </div>
-            )}
+              <div className="text-2xl font-bold text-blue-600">
+                {formatCurrency(primaryAmount)}
+              </div>
+              {selectedBill && (
+                <div className="text-xs text-gray-500 mt-1">
+                  Payment for this order only
+                </div>
+              )}
+            </div>
+            {/* Debug info */}
+            <div className="text-xs text-gray-400">
+              Debug: {selectedBill ? 'Selected' : 'No'} bill | {primaryAmount === totalOutstanding ? 'Total' : 'Bill'} amount
+            </div>
           </div>
         </DialogHeader>
 
@@ -288,7 +305,7 @@ export default function PaymentCollectionDialog({
                       onChange={(e) => handleAmountChange(e.target.value)}
                       className="pl-12 h-12 text-lg font-semibold border-2 focus:border-green-500 bg-white"
                       step="0.01"
-                      max={selectedBill ? selectedBill.pending_amount : totalOutstanding}
+                      max={primaryAmount}
                       required
                     />
                   </div>
@@ -300,7 +317,7 @@ export default function PaymentCollectionDialog({
                   )}
                   <div className="flex items-center justify-between mt-3 text-sm">
                     <span className="text-gray-600">
-                      Maximum: {formatCurrency(selectedBill ? selectedBill.pending_amount : totalOutstanding)}
+                      Maximum: {formatCurrency(primaryAmount)} {selectedBill ? '(order amount)' : '(total outstanding)'}
                     </span>
                     {selectedBill && paymentData.amount && (
                       <span className="text-green-600 font-medium">
@@ -316,7 +333,7 @@ export default function PaymentCollectionDialog({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => handleAmountChange((selectedBill ? selectedBill.pending_amount : totalOutstanding).toString())}
+                    onClick={() => handleAmountChange(primaryAmount.toString())}
                     className="h-10"
                   >
                     Full Amount
@@ -325,7 +342,7 @@ export default function PaymentCollectionDialog({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => handleAmountChange(((selectedBill ? selectedBill.pending_amount : totalOutstanding) / 2).toString())}
+                    onClick={() => handleAmountChange((primaryAmount / 2).toString())}
                     className="h-10"
                   >
                     Half Amount

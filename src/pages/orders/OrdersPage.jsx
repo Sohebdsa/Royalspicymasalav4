@@ -18,10 +18,10 @@ import OrderDetailsModal from '../../components/orders/order-details-modal';
 import BatchAllocationDialog from '../../components/orders/BatchAllocationDialog';
 import OrderConfirmationDialog from '../../components/orders/order-confirmation-dialog';
 import PaymentConfirmationDialog from '../../components/orders/PaymentConfirmationDialog';
-import PaymentCollectionDialog from './customerhistory/customers-detailed-page/PaymentCollectionDialog';
+import OrderPaymentCollectionDialog from '../../components/orders/OrderPaymentCollectionDialog';
 import { useToast } from '../../contexts/ToastContext';
 
-
+ 
 // Utility functions
 const formatCurrency = (amount) => {
   const numAmount = Number(amount) || 0;
@@ -34,13 +34,12 @@ const formatCurrency = (amount) => {
 
 const formatDate = (dateStr) => {
   try {
-    // Ensure we're working with local date, not UTC
     const date = new Date(dateStr + 'T00:00:00');
     return new Intl.DateTimeFormat('en-IN', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
-      timeZone: 'Asia/Kolkata' // Explicit timezone for Indian Standard Time
+      timeZone: 'Asia/Kolkata' 
     }).format(date);
   } catch {
     return dateStr;
@@ -55,10 +54,8 @@ const getDateRange = (selectedDate) => {
 };
 
 const getDateRangeForFilter = (filterType) => {
-  // Use local date methods to avoid timezone issues
   const now = new Date();
 
-  // Create dates using local methods to avoid UTC conversion issues
   const getLocalDateString = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -87,7 +84,6 @@ const getDateRangeForFilter = (filterType) => {
     case 'thisWeek':
       const startOfWeek = new Date(now);
       const day = startOfWeek.getDay();
-      // Calculate Monday as start of week (Monday = 1, Sunday = 0)
       const daysToSubtract = day === 0 ? 6 : day - 1;
       startOfWeek.setDate(startOfWeek.getDate() - daysToSubtract);
 
@@ -276,8 +272,8 @@ export default function OrdersPage() {
   const [paymentCollectionDialog, setPaymentCollectionDialog] = useState({
     isOpen: false,
     customer: null,
-    bills: [],
-    selectedBill: null
+    order: null,
+    outstanding: 0
   });
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
 
@@ -410,15 +406,12 @@ export default function OrdersPage() {
     }
   }, [selectedDate, dateFilterType, statsLoading]);
 
-  // Combined fetch function with improved debouncing
-  const fetchOrders = useCallback(async (customDate = selectedDate, force = false) => {
-    // ✅ Skip if dialogs are open (unless forced)
+   const fetchOrders = useCallback(async (customDate = selectedDate, force = false) => {
     if (!force && isAnyDialogOpen) {
       console.log('Skipping fetch: Dialog is open');
       return;
     }
 
-    // ✅ Enhanced debouncing
     const now = Date.now();
     if (!force && now - lastFetchTimeRef.current < 1000) { // Increased to 1 second
       return;
@@ -451,7 +444,7 @@ export default function OrdersPage() {
     orders.length,
     fetchOrdersOnly,
     fetchOrderStatsOnly,
-    isAnyDialogOpen // ✅ Added missing dependency
+    isAnyDialogOpen
   ]);
 
   // Handle date filter type change
@@ -785,17 +778,78 @@ export default function OrdersPage() {
         throw new Error('Failed to fetch customer details');
       }
 
+      // Debug: Log the order and bills data
+      console.log('DEBUG: Order data:', paymentConfirmDialog.orderData);
+      console.log('DEBUG: Customer bills:', customerResult.data.bills);
+      
       // Find the bill for this order
       const orderBill = customerResult.data.bills.find(bill =>
         bill.order_id === paymentConfirmDialog.orderData.id
       );
+      
+      console.log('DEBUG: Found orderBill:', orderBill);
 
-      // Open payment collection dialog
+      // If no bill exists for this order, create a new bill in the database
+      let finalCustomer = customerResult.data.customer;
+      if (!orderBill) {
+        console.log('DEBUG: No bill found for order, creating new bill');
+        try {
+          // Create a new bill for this order
+          console.log('DEBUG: Attempting to create bill for order:', {
+            orderId: paymentConfirmDialog.orderData.id,
+            orderStatus: paymentConfirmDialog.orderData.status,
+            orderNumber: paymentConfirmDialog.orderData.order_number
+          });
+          
+          const createBillResponse = await fetch('http://localhost:5000/api/customers/bills', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orderId: paymentConfirmDialog.orderData.id
+            })
+          });
+          
+          const createBillResult = await createBillResponse.json();
+          console.log('DEBUG: Bill creation result:', createBillResult);
+          
+          if (createBillResult.success) {
+            console.log('DEBUG: New bill created:', createBillResult.data);
+            // Add the new bill to the customer data
+            finalCustomer = {
+              ...customerResult.data.customer,
+              bills: [...customerResult.data.bills, createBillResult.data]
+            };
+          } else {
+            throw new Error(createBillResult.message || 'Failed to create bill');
+          }
+        } catch (error) {
+          console.error('Error creating bill:', error);
+          showError('Failed to create bill for this order. Please try again.');
+          return;
+        }
+      }
+
+      // Open the specific order payment collection dialog
+      console.log('DEBUG: Opening payment dialog with:', {
+        customer: finalCustomer,
+        order: paymentConfirmDialog.orderData,
+        outstanding: orderBill ? parseFloat(orderBill.pending_amount || 0) : parseFloat(paymentConfirmDialog.orderData.total_amount || 0)
+      });
+      
+      // Ensure order data is valid before opening dialog
+      if (!paymentConfirmDialog.orderData || !paymentConfirmDialog.orderData.id) {
+        console.error('ERROR: Invalid order data:', paymentConfirmDialog.orderData);
+        showError('Invalid order data. Please try again.');
+        return;
+      }
+      
       setPaymentCollectionDialog({
         isOpen: true,
-        customer: customerResult.data.customer,
-        bills: customerResult.data.bills,
-        selectedBill: orderBill || null
+        customer: finalCustomer,
+        order: paymentConfirmDialog.orderData,
+        outstanding: parseFloat(paymentConfirmDialog.orderData.total_amount || 0) // Always show specific order amount, not total outstanding
       });
 
     } catch (error) {
@@ -843,12 +897,17 @@ export default function OrdersPage() {
 
       showSuccess('Order marked as delivered and amount added to customer\'s outstanding balance');
 
-      // Refresh data
-      await Promise.all([
-        fetchOrders(selectedDate),
-        fetchOrderStatsOnly(selectedDate)
-      ]);
-      setIsDetailsModalOpen(false);
+      // Add 1-second delay before refreshing to show loading effect
+      setTimeout(async () => {
+        // Only refresh if we have orders data to avoid unnecessary API calls
+        if (orders.length > 0) {
+          await Promise.all([
+            fetchOrders(selectedDate, true), // Force refresh
+            fetchOrderStatsOnly(selectedDate)
+          ]);
+        }
+        setIsDetailsModalOpen(false);
+      }, 1000);
 
     } catch (error) {
       console.error('Error marking delivered:', error);
@@ -911,17 +970,22 @@ export default function OrdersPage() {
       setPaymentCollectionDialog({
         isOpen: false,
         customer: null,
-        bills: [],
-        selectedBill: null
+        order: null,
+        outstanding: 0
       });
       setPaymentConfirmDialog({ isOpen: false, orderData: null });
 
-      // Refresh data
-      await Promise.all([
-        fetchOrders(selectedDate),
-        fetchOrderStatsOnly(selectedDate)
-      ]);
-      setIsDetailsModalOpen(false);
+      // Add 1-second delay before refreshing to show loading effect
+      setTimeout(async () => {
+        // Only refresh if we have orders data to avoid unnecessary API calls
+        if (orders.length > 0) {
+          await Promise.all([
+            fetchOrders(selectedDate, true), // Force refresh
+            fetchOrderStatsOnly(selectedDate)
+          ]);
+        }
+        setIsDetailsModalOpen(false);
+      }, 1000);
 
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -1179,10 +1243,15 @@ export default function OrdersPage() {
                     const result = await response.json();
                     if (result.success) {
                       showSuccess('Order moved to Processing');
-                      await Promise.all([
-                        fetchOrders(selectedDate),
-                        fetchOrderStatsOnly(selectedDate)
-                      ]);
+                      // Reset all filters and force complete page refresh
+                      setFilters({ status: 'all', source: 'all', search: '' });
+                      // Add a small delay to ensure the dialog is fully closed before refreshing
+                      setTimeout(async () => {
+                        await Promise.all([
+                          fetchOrders(selectedDate, true), // Force refresh
+                          fetchOrderStatsOnly(selectedDate)
+                        ]);
+                      }, 500);
                     } else {
                       showError(result.message || 'Failed to update status');
                     }
@@ -1205,14 +1274,14 @@ export default function OrdersPage() {
             isLoading={isPaymentLoading}
           />
 
-          {/* Payment Collection Dialog */}
-          <PaymentCollectionDialog
+          {/* Order Payment Collection Dialog */}
+          <OrderPaymentCollectionDialog
             isOpen={paymentCollectionDialog.isOpen}
             onClose={closePaymentCollectionDialog}
             onPaymentSubmit={handlePaymentSubmit}
+            order={paymentCollectionDialog.order}
             customer={paymentCollectionDialog.customer}
-            bills={paymentCollectionDialog.bills}
-            selectedBill={paymentCollectionDialog.selectedBill}
+            outstanding={paymentCollectionDialog.outstanding}
             isLoading={isPaymentLoading}
           />
         </>

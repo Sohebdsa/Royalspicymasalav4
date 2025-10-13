@@ -119,11 +119,15 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     return allocationItems;
   }, [orderData?.items]);
 
-  const debouncedCount = useDebounce(itemsNeedingAllocation.length, 500);
+  // Track if data has been fetched to prevent double fetching
+  const fetchedRef = useRef(null);
 
-  // Combined data fetching with proper debouncing
+  // Combined data fetching with proper debouncing and duplicate prevention
   useEffect(() => {
     if (!isOpen || !memoizedOrder?.id) return;
+    
+    // Prevent duplicate fetches for the same order
+    if (fetchedRef.current === memoizedOrder.id) return;
     
     let abort = false;
     let isLoading = false;
@@ -131,10 +135,12 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     const fetchAllData = async () => {
       if (isLoading) return;
       isLoading = true;
+      setLoading(true);
+      fetchedRef.current = memoizedOrder.id;
       
       try {
-        // Fetch order details if needed
-        if (!memoizedOrder?.items?.length) {
+        // Only fetch order details if we don't have complete order data
+        if (!orderData?.items?.length && memoizedOrder.id) {
           const orderRes = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}`);
           const { success, data } = await orderRes.json();
           if (success && !abort) {
@@ -155,41 +161,9 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           setAllocations(grouped);
         }
         
-        // Fetch available batches only if we have items needing allocation
-        if (itemsNeedingAllocation.length > 0) {
-          const all = {};
-          const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
-          
-          // Use Promise.all for concurrent batch fetching with better error handling
-          const batchPromises = pids.map(async (pid) => {
-            try {
-              const res = await fetch(`http://localhost:5000/api/inventory/product/${pid}/batches`);
-              if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-              }
-              const { success, data } = await res.json();
-              if (success && Array.isArray(data)) {
-                all[pid] = data.map(b => ({
-                  batch: b.batch || b.batch_id,
-                  totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
-                  unit: b.unit || 'kg'
-                })).filter(b => b.batch && b.totalQuantity > 0);
-              } else {
-                console.warn(`No batches found for product ${pid} or invalid response`);
-                all[pid] = [];
-              }
-            } catch (error) {
-              console.error(`Error fetching batches for product ${pid}:`, error);
-              all[pid] = [];
-            }
-          });
-          
-          await Promise.all(batchPromises);
-          if (!abort) {
-            setAvailableBatches(all);
-            console.log('Batches fetched:', all); // Debug log
-          }
-        }
+        // Fetch available batches - this will run after orderData is set
+        // We'll handle this in a separate effect below
+        
       } catch (error) {
         console.error('Error fetching batch allocation data:', error);
         showError('Failed to load allocation data');
@@ -206,7 +180,66 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       abort = true;
       clearTimeout(timeoutId);
     };
-  }, [isOpen, debouncedCount, memoizedOrder?.id, memoizedOrder?.items?.length, itemsNeedingAllocation.length]);
+  }, [isOpen, memoizedOrder?.id]); // Removed problematic dependencies
+
+  // Separate effect for fetching batches after we have items
+  useEffect(() => {
+    if (!itemsNeedingAllocation.length || !isOpen) return;
+    
+    let abort = false;
+    
+    const fetchBatches = async () => {
+      try {
+        const all = {};
+        const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
+        
+        // Use Promise.all for concurrent batch fetching with better error handling
+        const batchPromises = pids.map(async (pid) => {
+          try {
+            const res = await fetch(`http://localhost:5000/api/inventory/product/${pid}/batches`);
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            const { success, data } = await res.json();
+            if (success && Array.isArray(data)) {
+              all[pid] = data.map(b => ({
+                batch: b.batch || b.batch_id,
+                totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
+                unit: b.unit || 'kg'
+              })).filter(b => b.batch && b.totalQuantity > 0);
+            } else {
+              console.warn(`No batches found for product ${pid} or invalid response`);
+              all[pid] = [];
+            }
+          } catch (error) {
+            console.error(`Error fetching batches for product ${pid}:`, error);
+            all[pid] = [];
+          }
+        });
+        
+        await Promise.all(batchPromises);
+        if (!abort) {
+          setAvailableBatches(all);
+          console.log('Batches fetched:', all); // Debug log
+        }
+      } catch (error) {
+        console.error('Error fetching batches:', error);
+      }
+    };
+    
+    fetchBatches();
+    
+    return () => {
+      abort = true;
+    };
+  }, [itemsNeedingAllocation.length, isOpen]); // Only depend on items length and dialog state
+
+  // Reset fetchedRef when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      fetchedRef.current = null;
+    }
+  }, [isOpen]);
 
   const totalAllocatedForItem = useCallback(
     key => (allocations[key] || []).reduce((sum, a) => sum + parseFloat(a.quantity || 0), 0),
@@ -257,10 +290,14 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
       showSuccess('Allocations saved');
-      onClose(true);
+      
+      // Show loading spinner for 2 seconds before closing dialog
+      setTimeout(() => {
+        setLoading(false);
+        onClose(true);
+      }, 2000);
     } catch (e) {
       showError(e.message || 'Failed to save allocations');
-    } finally {
       setLoading(false);
     }
   }, 1000);

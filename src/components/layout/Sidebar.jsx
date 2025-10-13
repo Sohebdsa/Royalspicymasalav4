@@ -14,6 +14,7 @@ const Sidebar = ({ isMobileOpen, closeMobileSidebar }) => {
   const isActive = (path) => location.pathname === path;
 
   const navItems = [
+    
     { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
     { name: 'Orders', path: '/orders', icon: <ClipboardList className="h-5 w-5" /> },
     { name: 'Inventory', path: '/inventory', icon: <PackageSearch className="h-5 w-5" /> },

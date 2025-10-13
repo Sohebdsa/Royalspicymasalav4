@@ -64,7 +64,7 @@ const CatererCard = ({ caterer, onEdit, onDelete, onCatererUpdated }) => {
   };
 
   const handleSell = () => {
-    navigate('/caterer-online');
+    navigate(`/caterers/${caterer.id}/sell`);
   };
 
   const handleEdit = () => {
