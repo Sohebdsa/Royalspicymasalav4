@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { catererService, productService, catererSalesService, cacheService } from '../../services/apiService';
-import { 
+import CatererBatchSelectionDialog from './CatererBatchSelectionDialog';
+import CatererMixCalculator from './CatererMixCalculator';
+import MixProductSelectionDialog from './MixProductSelectionDialog';
+import CatererBillActionDialog from './CatererBillActionDialog';
+import {
   ArrowLeftIcon,
   PlusIcon,
   ShoppingCartIcon,
@@ -10,7 +14,8 @@ import {
   CurrencyRupeeIcon,
   PhotoIcon,
   TrashIcon,
-  UserIcon
+  UserIcon,
+  CalculatorIcon
 } from '@heroicons/react/24/outline';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -18,12 +23,12 @@ const CatererSellComponent = () => {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
   const { catererId } = useParams();
-  
+
   const [caterers, setCaterers] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [billNumber, setBillNumber] = useState('#0001');
-  
+
   // Sell form state
   const [sellData, setSellData] = useState({
     caterer_id: '',
@@ -41,8 +46,9 @@ const CatererSellComponent = () => {
   // Current other charge being added
   const [currentCharge, setCurrentCharge] = useState({
     name: '',
-    type: 'fixed', // 'fixed' or 'percentage'
-    value: ''
+    type: 'fixed', // 'fixed', 'percentage', or 'discount'
+    value: '',
+    value_type: 'fixed' // for discount: 'fixed' or 'percentage'
   });
 
   // Current item being added
@@ -53,6 +59,39 @@ const CatererSellComponent = () => {
     unit: 'kg',
     rate: '',
     gst: '0'
+  });
+
+  // Batch selection dialog state
+  const [batchSelectionDialog, setBatchSelectionDialog] = useState({
+    isOpen: false,
+    product: null,
+    availableBatches: []
+  });
+
+  // Mix calculator dialog state
+  const [mixCalculatorDialog, setMixCalculatorDialog] = useState({
+    isOpen: false
+  });
+
+  // Mix batch selection dialog state
+  const [mixBatchSelectionDialog, setMixBatchSelectionDialog] = useState({
+    isOpen: false,
+    mixProducts: [],
+    mixName: '',
+    totalBudget: 0
+  });
+
+  // Mix product selection dialog state
+  const [mixProductSelectionDialog, setMixProductSelectionDialog] = useState({
+    isOpen: false,
+    mixProducts: [],
+    mixName: '',
+    totalBudget: 0
+  });
+
+  // Bill action dialog state
+  const [billActionDialog, setBillActionDialog] = useState({
+    isOpen: false
   });
 
   const [receiptPreview, setReceiptPreview] = useState(null);
@@ -73,6 +112,7 @@ const CatererSellComponent = () => {
 
         // Fetch products using cached API service
         const productsData = await productService.getProducts();
+
         if (productsData.success) {
           setProducts(productsData.data || []);
         } else {
@@ -80,11 +120,21 @@ const CatererSellComponent = () => {
           setProducts([]);
         }
 
-        // Get next bill number (no cache for this as it needs to be fresh)
-        const billData = await catererSalesService.getNextBillNumber();
-        if (billData.success) {
-          setBillNumber(billData.bill_number);
-        } else {
+        // Get next bill number using direct fetch (fallback if API service fails)
+        try {
+          const billResponse = await fetch('http://localhost:5000/api/caterer-sales/next-bill-number');
+          if (billResponse.ok) {
+            const billData = await billResponse.json();
+            if (billData.success) {
+              setBillNumber(billData.bill_number);
+            } else {
+              setBillNumber('#0001');
+            }
+          } else {
+            setBillNumber('#0001');
+          }
+        } catch (billError) {
+          console.warn('Could not fetch next bill number, using default:', billError);
           setBillNumber('#0001');
         }
 
@@ -146,7 +196,7 @@ const CatererSellComponent = () => {
   const handleCatererChange = (e) => {
     const catererId = e.target.value;
     const selectedCaterer = caterers.find(c => c.id === parseInt(catererId));
-    
+
     setSellData(prev => ({
       ...prev,
       caterer_id: catererId,
@@ -156,13 +206,17 @@ const CatererSellComponent = () => {
 
   const handleCurrentItemChange = (e) => {
     const { name, value } = e.target;
-    
+
     if (name === 'product_id') {
       const selectedProduct = products.find(p => p.id === parseInt(value));
+
       setCurrentItem(prev => ({
         ...prev,
         product_id: value,
-        product_name: selectedProduct ? selectedProduct.name : ''
+        product_name: selectedProduct ? selectedProduct.name : '',
+        rate: selectedProduct ? (selectedProduct.caterer_price).toString() : '',
+        gst: selectedProduct ? (selectedProduct.gst || 0).toString() : '0',
+        unit: selectedProduct ? (selectedProduct.unit || 'kg') : 'kg'
       }));
     } else {
       setCurrentItem(prev => ({
@@ -174,10 +228,20 @@ const CatererSellComponent = () => {
 
   const handleCurrentChargeChange = (e) => {
     const { name, value } = e.target;
-    setCurrentCharge(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // When type changes to discount, set default value_type to percentage
+    if (name === 'type' && value === 'discount') {
+      setCurrentCharge(prev => ({
+        ...prev,
+        [name]: value,
+        value_type: 'percentage'
+      }));
+    } else {
+      setCurrentCharge(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleSellDataChange = (e) => {
@@ -195,67 +259,66 @@ const CatererSellComponent = () => {
         showError('Image size should be less than 5MB');
         return;
       }
-      
+
       setSellData(prev => ({ ...prev, receipt_image: file }));
-      
+
       const reader = new FileReader();
       reader.onload = (e) => setReceiptPreview(e.target.result);
       reader.readAsDataURL(file);
     }
   };
 
-  const addItem = () => {
+  const openBatchSelection = async () => {
     // Validation
-    if (!currentItem.product_id || !currentItem.quantity || !currentItem.rate) {
-      showError('Please fill all required fields');
+    if (!currentItem.product_id) {
+      showError('Please select a product first');
       return;
     }
 
-    const quantity = parseFloat(currentItem.quantity);
-    const rate = parseFloat(currentItem.rate);
-    const gst = parseFloat(currentItem.gst);
-
-    if (isNaN(quantity) || quantity <= 0) {
-      showError('Please enter a valid quantity');
+    const selectedProduct = products.find(p => p.id === parseInt(currentItem.product_id));
+    if (!selectedProduct) {
+      showError('Invalid product selected');
       return;
     }
 
-    if (isNaN(rate) || rate <= 0) {
-      showError('Rate cannot be 0 and must be a valid number');
-      return;
+    try {
+      // Fetch available batches for the selected product
+      const response = await productService.getProductBatches(currentItem.product_id);
+      if (response.success && Array.isArray(response.data)) {
+        const batches = response.data.map(b => ({
+          batch: b.batch || b.batch_id,
+          totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
+          unit: b.unit || 'kg'
+        })).filter(b => b.batch && b.totalQuantity > 0);
+
+        setBatchSelectionDialog({
+          isOpen: true,
+          product: {
+            product_id: currentItem.product_id,
+            product_name: currentItem.product_name,
+            rate: selectedProduct.caterer_price,
+            gst: selectedProduct.gst || 0,
+            unit: selectedProduct.unit || 'kg'
+          },
+          availableBatches: batches
+        });
+      } else {
+        showError('No batches available for this product');
+      }
+    } catch (error) {
+      console.error('Error fetching batches:', error);
+      showError('Failed to fetch product batches');
     }
+  };
 
-    if (isNaN(gst) || gst < 0) {
-      showError('Please enter a valid GST percentage');
-      return;
-    }
-
-    // Check if product already exists in items
-    const existingItemIndex = sellData.items.findIndex(item => item.product_id === currentItem.product_id);
-    
-    if (existingItemIndex !== -1) {
-      showError('Product already added. Please edit the existing item or remove it first.');
-      return;
-    }
-
-    const subtotal = quantity * rate;
-    const gstAmount = (subtotal * gst) / 100;
-    const total = subtotal + gstAmount;
-
-    const newItem = {
-      ...currentItem,
-      quantity,
-      rate,
-      gst,
-      subtotal,
-      gst_amount: gstAmount,
-      total
-    };
-
+  const handleBatchSelection = (selectedItem) => {
+    // Add new item as a separate entry (no merging logic)
     setSellData(prev => ({
       ...prev,
-      items: [...prev.items, newItem]
+      items: [...prev.items, selectedItem]
     }));
+
+    showSuccess('Item added successfully');
 
     // Reset current item
     setCurrentItem({
@@ -266,8 +329,6 @@ const CatererSellComponent = () => {
       rate: '',
       gst: '0'
     });
-
-    showSuccess('Item added successfully');
   };
 
   const addCharge = () => {
@@ -304,7 +365,8 @@ const CatererSellComponent = () => {
     setCurrentCharge({
       name: '',
       type: 'fixed',
-      value: ''
+      value: '',
+      value_type: 'fixed'
     });
 
     showSuccess('Charge added successfully');
@@ -319,36 +381,158 @@ const CatererSellComponent = () => {
   };
 
   const removeItem = (index) => {
-    setSellData(prev => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index)
-    }));
-    showSuccess('Item removed successfully');
+    const item = sellData.items[index];
+    
+    if (item.isMixHeader) {
+      // Remove the entire mix (header + all items)
+      const mixNumber = item.mixNumber;
+      setSellData(prev => ({
+        ...prev,
+        items: prev.items.filter((_, i) =>
+          !sellData.items[i].isMixHeader || sellData.items[i].mixNumber !== mixNumber
+        )
+      }));
+      showSuccess(`${item.product_name} mix removed successfully`);
+    } else if (item.isMixItem) {
+      // Remove individual mix item
+      setSellData(prev => ({
+        ...prev,
+        items: prev.items.filter((_, i) => i !== index)
+      }));
+      showSuccess(`${item.product_name} removed successfully`);
+    } else {
+      // Remove regular item
+      setSellData(prev => ({
+        ...prev,
+        items: prev.items.filter((_, i) => i !== index)
+      }));
+      showSuccess('Item removed successfully');
+    }
   };
 
   const calculateTotals = () => {
-    const subtotal = sellData.items.reduce((sum, item) => sum + item.subtotal, 0);
-    const totalGst = sellData.items.reduce((sum, item) => sum + item.gst_amount, 0);
-    const itemsTotal = sellData.items.reduce((sum, item) => sum + item.total, 0);
+    // Calculate totals for each item if they don't have the properties
+    const itemsWithTotals = sellData.items.map((item, index) => {
+      if (item.subtotal !== undefined && item.gst_amount !== undefined && item.total !== undefined) {
+        return item;
+      }
+      
+      // For mix headers, use the existing values
+      if (item.isMixHeader) {
+        const subtotal = parseFloat(item.subtotal || item.total || 0);
+        const total = parseFloat(item.total || 0);
+        return {
+          ...item,
+          subtotal,
+          gst_amount: parseFloat(item.gst_amount || 0),
+          total
+        };
+      }
+      
+      // For mix items, use the allocated budget as the total but set to 0 for calculation
+      if (item.isMixItem) {
+        const subtotal = parseFloat(item.subtotal || item.total || 0);
+        const total = parseFloat(item.total || 0);
+        return {
+          ...item,
+          subtotal,
+          gst_amount: parseFloat(item.gst_amount || 0),
+          total
+        };
+      }
+      
+      // Calculate missing properties for regular items
+      const quantity = parseFloat(item.quantity) || 0;
+      const rate = parseFloat(item.rate) || 0;
+      const gst = parseFloat(item.gst) || 0;
+      
+      const subtotal = quantity * rate;
+      const gstAmount = (subtotal * gst) / 100;
+      const total = subtotal + gstAmount;
+      
+      return {
+        ...item,
+        subtotal,
+        gst_amount: gstAmount,
+        total
+      };
+    });
+
+    // Calculate totals - only include mix headers, not individual mix items
+    const subtotal = itemsWithTotals.reduce((sum, item) => {
+      // Skip mix items in the calculation (only include mix headers)
+      if (item.isMixItem) {
+        return sum;
+      }
+      const itemSubtotal = parseFloat(item.subtotal || 0);
+      return sum + itemSubtotal;
+    }, 0);
     
-    // Calculate other charges
+    const totalGst = itemsWithTotals.reduce((sum, item) => {
+      // Skip mix items in the calculation (only include mix headers)
+      if (item.isMixItem) {
+        return sum;
+      }
+      return sum + (item.gst_amount || 0);
+    }, 0);
+    
+    const itemsTotal = itemsWithTotals.reduce((sum, item) => {
+      // Skip mix items in the calculation (only include mix headers)
+      if (item.isMixItem) {
+        return sum;
+      }
+      const itemTotal = parseFloat(item.total || 0);
+      return sum + itemTotal;
+    }, 0);
+
+    // Calculate other charges and discounts
     let otherChargesTotal = 0;
+    let discountTotal = 0;
     sellData.other_charges.forEach(charge => {
       if (charge.type === 'fixed') {
         otherChargesTotal += charge.value;
       } else if (charge.type === 'percentage') {
         otherChargesTotal += (itemsTotal * charge.value) / 100;
+      } else if (charge.type === 'discount') {
+        if (charge.value_type === 'fixed') {
+          discountTotal += charge.value;
+        } else if (charge.value_type === 'percentage') {
+          discountTotal += (itemsTotal * charge.value) / 100;
+        }
       }
     });
-    
-    const grandTotal = itemsTotal + otherChargesTotal;
-    
+
+    const grandTotal = itemsTotal + otherChargesTotal - discountTotal;
+
     return { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal };
+  };
+
+  const calculateDiscountTotal = () => {
+    // Calculate items total, skipping mix items to avoid double-counting
+    const itemsTotal = sellData.items.reduce((sum, item) => {
+      // Skip mix items in the calculation (only include mix headers)
+      if (item.isMixItem) {
+        return sum;
+      }
+      return sum + (item.total || 0);
+    }, 0);
+    
+    let discountTotal = 0;
+    sellData.other_charges.forEach(charge => {
+      if (charge.type === 'discount') {
+        if (charge.value_type === 'fixed') {
+          discountTotal += charge.value;
+        } else if (charge.value_type === 'percentage') {
+          discountTotal += (itemsTotal * charge.value) / 100;
+        }
+      }
+    });
+    return discountTotal;
   };
 
   const getPaymentAmount = () => {
     const { grandTotal } = calculateTotals();
-    
+
     switch (sellData.payment_option) {
       case 'full':
         return grandTotal;
@@ -381,10 +565,10 @@ const CatererSellComponent = () => {
 
     try {
       setLoading(true);
-      
+
       const { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal } = calculateTotals();
       const paymentAmount = getPaymentAmount();
-      
+
       // Create FormData for file upload
       const formData = new FormData();
       formData.append('caterer_id', sellData.caterer_id);
@@ -414,7 +598,7 @@ const CatererSellComponent = () => {
       } else {
         showError(data.message || 'Failed to complete sale');
       }
-      
+
     } catch (error) {
       console.error('Error completing sale:', error);
       showError('Failed to complete sale');
@@ -457,7 +641,7 @@ const CatererSellComponent = () => {
                 <p className="text-gray-600 mt-1">Create a new sales order</p>
               </div>
             </div>
-            
+
             <div className="text-right">
               <p className="text-sm text-gray-600">Bill Number</p>
               <p className="text-xl font-bold text-orange-600">{billNumber}</p>
@@ -472,7 +656,7 @@ const CatererSellComponent = () => {
               <DocumentTextIcon className="h-5 w-5 text-orange-600 mr-2" />
               Sale Details
             </h2>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -490,7 +674,7 @@ const CatererSellComponent = () => {
                   <CalendarIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
                   Caterer <span className="text-red-500">*</span>
@@ -647,11 +831,23 @@ const CatererSellComponent = () => {
                   />
                 </div>
 
+                {/* Mix Calculator Button */}
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => setMixCalculatorDialog({ isOpen: true })}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500 flex items-center justify-center h-10"
+                    title="Open Mix Calculator"
+                  >
+                    <CalculatorIcon className="h-4 w-4" />
+                  </button>
+                </div>
+
                 {/* Add Button */}
                 <div>
                   <button
                     type="button"
-                    onClick={addItem}
+                    onClick={openBatchSelection}
                     className="w-full px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 focus:outline-none focus:ring-1 focus:ring-orange-500 flex items-center justify-center"
                   >
                     <PlusIcon className="h-4 w-4 mr-1" />
@@ -698,42 +894,98 @@ const CatererSellComponent = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {sellData.items.map((item, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.product_name}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {item.quantity}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {item.unit}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          ₹{parseFloat(item.rate).toFixed(2).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {item.gst}%
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          ₹{parseFloat(item.subtotal).toFixed(2).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          ₹{parseFloat(item.gst_amount).toFixed(2).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          ₹{parseFloat(item.total).toFixed(2).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(index)}
-                            className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
-                            title="Remove item"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
+                      item.isMixHeader ? (
+                        // Mix header row
+                        <tr key={index} className="bg-orange-50 hover:bg-orange-100">
+                          <td colSpan={9} className="px-4 py-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-sm font-bold text-orange-800">{item.product_name}</span>
+                                <span className="text-xs text-orange-600 ml-2">({item.mixNumber})</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-sm font-semibold text-orange-800">₹{parseFloat(item.total).toFixed(2).toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : item.isMixItem ? (
+                        // Mix item row (indented)
+                        <tr key={index} className="hover:bg-gray-50 bg-orange-25">
+                          <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">└ {item.product_name}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">{item.quantity}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">{item.unit}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">₹{parseFloat(item.rate || 0).toFixed(2).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">{item.gst}%</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">₹{parseFloat(item.subtotal || 0).toFixed(2).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">₹{parseFloat(item.gst_amount || 0).toFixed(2).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-700">
+                            <span className="text-xs text-gray-500 block ml-4">₹{parseFloat(item.total || 0).toFixed(2).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(index)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
+                              title="Remove item"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (
+                        // Regular item row
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {item.product_name}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {item.quantity}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {item.unit}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            ₹{parseFloat(item.rate).toFixed(2).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {item.gst}%
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            ₹{parseFloat(item.subtotal).toFixed(2).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            ₹{parseFloat(item.gst_amount).toFixed(2).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
+                            ₹{parseFloat(item.total).toFixed(2).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(index)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
+                              title="Remove item"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
                     ))}
                   </tbody>
                 </table>
@@ -744,7 +996,7 @@ const CatererSellComponent = () => {
                     <div className="w-64 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-medium">₹{parseFloat(subtotal).toFixed(2).toLocaleString('en-IN')}</span>
+                        <span className="font-medium">₹{parseFloat(subtotal).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Total GST:</span>
@@ -755,10 +1007,18 @@ const CatererSellComponent = () => {
                         <span className="font-medium">₹{parseFloat(itemsTotal).toFixed(2).toLocaleString('en-IN')}</span>
                       </div>
                       {sellData.other_charges.length > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Other Charges:</span>
-                          <span className="font-medium">₹{parseFloat(otherChargesTotal).toFixed(2).toLocaleString('en-IN')}</span>
-                        </div>
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Other Charges:</span>
+                            <span className="font-medium">₹{parseFloat(otherChargesTotal).toFixed(2).toLocaleString('en-IN')}</span>
+                          </div>
+                          {sellData.other_charges.some(charge => charge.type === 'discount') && (
+                            <div className="flex justify-between text-sm text-green-600">
+                              <span>Discount:</span>
+                              <span>-₹{calculateDiscountTotal().toFixed(2).toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
+                        </>
                       )}
                       <div className="flex justify-between text-lg font-bold border-t border-gray-300 pt-2">
                         <span>Grand Total:</span>
@@ -787,7 +1047,7 @@ const CatererSellComponent = () => {
 
             {/* Add Charge Form */}
             <div className="bg-gray-50 rounded-lg p-3 mb-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                 {/* Charge Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -816,8 +1076,27 @@ const CatererSellComponent = () => {
                   >
                     <option value="fixed">Fixed Amount</option>
                     <option value="percentage">Percentage</option>
+                    <option value="discount">Discount</option>
                   </select>
                 </div>
+
+                {/* Discount Value Type (only shown for discount type) */}
+                {currentCharge.type === 'discount' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">
+                      Discount Type <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      name="value_type"
+                      value={currentCharge.value_type}
+                      onChange={handleCurrentChargeChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                    >
+                      <option value="fixed">Fixed Amount</option>
+                      <option value="percentage">Percentage</option>
+                    </select>
+                  </div>
+                )}
 
                 {/* Charge Value */}
                 <div>
@@ -839,7 +1118,12 @@ const CatererSellComponent = () => {
                       }
                       handleCurrentChargeChange({ target: { name: 'value', value } });
                     }}
-                    placeholder={currentCharge.type === 'percentage' ? '0.00%' : '0.00'}
+                    placeholder={
+                      currentCharge.type === 'percentage' ? '0.00%' :
+                      currentCharge.type === 'discount' ?
+                        (currentCharge.value_type === 'percentage' ? '0.00%' : '0.00') :
+                        '0.00'
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
                   />
                 </div>
@@ -888,15 +1172,23 @@ const CatererSellComponent = () => {
                           {charge.name}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {charge.type === 'fixed' ? 'Fixed Amount' : `${charge.value}%`}
+                          {charge.type === 'fixed' ? 'Fixed Amount' :
+                           charge.type === 'percentage' ? `${charge.value}%` :
+                           charge.value_type === 'percentage' ? `${charge.value}% Discount` :
+                           `₹${charge.value} Discount`}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                           {charge.value}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                          ₹{charge.type === 'fixed' ?
-                            parseFloat(charge.value).toFixed(2).toLocaleString('en-IN') :
-                            parseFloat((itemsTotal * charge.value) / 100).toFixed(2).toLocaleString('en-IN')}
+                          {charge.type === 'discount' ?
+                            `₹${charge.value_type === 'fixed' ?
+                              parseFloat(charge.value).toFixed(2).toLocaleString('en-IN') :
+                              parseFloat((itemsTotal * charge.value) / 100).toFixed(2).toLocaleString('en-IN')}` :
+                            charge.type === 'fixed' ?
+                              `₹${parseFloat(charge.value).toFixed(2).toLocaleString('en-IN')}` :
+                              `₹${parseFloat((itemsTotal * charge.value) / 100).toFixed(2).toLocaleString('en-IN')}`
+                          }
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
                           <button
@@ -1092,7 +1384,8 @@ const CatererSellComponent = () => {
                 Cancel
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={() => setBillActionDialog({ isOpen: true })}
                 disabled={loading || sellData.items.length === 0 || !sellData.caterer_id}
                 className="px-6 py-2 bg-orange-600 text-white rounded-md text-sm font-medium hover:bg-orange-700 focus:outline-none focus:ring-1 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
@@ -1105,13 +1398,160 @@ const CatererSellComponent = () => {
                     Processing...
                   </div>
                 ) : (
-                  'Complete Sale'
+                  'Complete Selling'
                 )}
               </button>
             </div>
           </div>
         </form>
       </div>
+
+        {/* Batch Selection Dialog */}
+        {batchSelectionDialog.isOpen && batchSelectionDialog.product && (
+          <CatererBatchSelectionDialog
+            isOpen={batchSelectionDialog.isOpen}
+            onClose={() => setBatchSelectionDialog({ isOpen: false, product: null, availableBatches: [] })}
+            product={batchSelectionDialog.product}
+            availableBatches={batchSelectionDialog.availableBatches ?? []}
+            onBatchSelection={handleBatchSelection}
+            initialQuantity={currentItem.quantity}
+          />
+        )}
+
+        {/* Mix Calculator Dialog */}
+        {mixCalculatorDialog.isOpen && (
+          <CatererMixCalculator
+            isOpen={mixCalculatorDialog.isOpen}
+            onClose={() => setMixCalculatorDialog({ isOpen: false })}
+            products={products}
+            onBatchSelectionComplete={(mixData) => {
+              // For each product in the mix, fetch available batches
+              const fetchBatchesForMixProducts = async () => {
+                try {
+                  const productsWithBatches = await Promise.all(
+                    mixData.mixProducts.map(async (product) => {
+                      const response = await productService.getProductBatches(product.id);
+                      return {
+                        ...product,
+                        availableBatches: response.success && Array.isArray(response.data)
+                          ? response.data.map(b => ({
+                              batch: b.batch || b.batch_id,
+                              totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
+                              unit: b.unit || 'kg'
+                            })).filter(b => b.batch && b.totalQuantity > 0)
+                          : []
+                      };
+                    })
+                  );
+
+                  // Open mix product selection dialog
+                  setMixProductSelectionDialog({
+                    isOpen: true,
+                    mixProducts: productsWithBatches,
+                    mixName: mixData.mixName,
+                    totalBudget: mixData.totalBudget
+                  });
+                } catch (error) {
+                  console.error('Error fetching batches for mix products:', error);
+                  showError('Failed to fetch batch information for mix products');
+                }
+              };
+
+              fetchBatchesForMixProducts();
+            }}
+          />
+        )}
+
+        {/* Mix Product Selection Dialog */}
+        {mixProductSelectionDialog.isOpen && (
+          <MixProductSelectionDialog
+            isOpen={mixProductSelectionDialog.isOpen}
+            onClose={() => setMixProductSelectionDialog({ isOpen: false })}
+            mixProducts={mixProductSelectionDialog.mixProducts}
+            mixName={mixProductSelectionDialog.mixName}
+            totalBudget={mixProductSelectionDialog.totalBudget}
+            onBatchSelectionComplete={(selectedMixData) => {
+              // Add mix items to the sell form with batch information
+              const mixName = selectedMixData.mixName;
+              const newItems = selectedMixData.mixProducts.map((product, index) => {
+                // Calculate rate properly - should be the original product price, not allocatedBudget/quantity
+                const originalProduct = products.find(p => p.id === product.id);
+                const rate = parseFloat(originalProduct ? (originalProduct.caterer_price || originalProduct.price || '0') : '0');
+                
+                return {
+                  product_id: product.id,
+                  product_name: product.name,
+                  quantity: product.calculatedQuantity,
+                  unit: product.unit || 'kg',
+                  rate: rate.toFixed(2),
+                  gst: '0', // Mix items typically don't have GST
+                  subtotal: parseFloat(product.allocatedBudget || 0).toFixed(2),
+                  gst_amount: '0',
+                  total: parseFloat(product.allocatedBudget || 0).toFixed(2),
+                  isMix: true,
+                  mixName: mixName,
+                  mixIndex: index,
+                  isMixItem: true,
+                  batch: product.selectedBatch,
+                  batchId: null,
+                  batchQuantity: product.calculatedQuantity,
+                  batchUnit: product.unit || 'kg'
+                };
+              });
+
+              // Add a header item for the mix
+              const mixHeaderItem = {
+                product_id: `mix-${Date.now()}`,
+                product_name: mixName,
+                quantity: 1,
+                unit: 'mix',
+                rate: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+                gst: '0',
+                subtotal: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+                gst_amount: '0',
+                total: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+                isMix: true,
+                mixName: mixName,
+                isMixHeader: true,
+                // Add calculated properties to match the structure expected by calculateTotals
+                calculatedRate: parseFloat(mixProductSelectionDialog.totalBudget || 0)
+              };
+
+              setSellData(prev => ({
+                ...prev,
+                items: [...prev.items, mixHeaderItem, ...newItems]
+              }));
+
+              showSuccess(`${mixName} added successfully!`);
+              setMixProductSelectionDialog({ isOpen: false });
+            }}
+          />
+        )}
+
+        {/* Bill Action Dialog */}
+        {billActionDialog.isOpen && (
+          <CatererBillActionDialog
+            isOpen={billActionDialog.isOpen}
+            onClose={() => setBillActionDialog({ isOpen: false })}
+            onBillPreview={() => {
+              // Handle bill preview action
+              console.log('Bill preview clicked');
+              setBillActionDialog({ isOpen: false });
+              // You can implement bill preview functionality here
+            }}
+            onCreateBill={() => {
+              // Handle create bill action - this will submit the form
+              handleSubmit(new Event('submit'));
+              setBillActionDialog({ isOpen: false });
+            }}
+            onWhatsAppBill={() => {
+              // Handle WhatsApp bill action
+              console.log('WhatsApp bill clicked');
+              setBillActionDialog({ isOpen: false });
+              // You can implement WhatsApp functionality here
+            }}
+          />
+        )}
     </div>
   );
 };

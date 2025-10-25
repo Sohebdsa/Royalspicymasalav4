@@ -212,14 +212,7 @@ const SupplierPurchasePage = () => {
       return;
     }
 
-    // Check if product already exists in items
-    const existingItemIndex = purchaseData.items.findIndex(item => item.product_id === currentItem.product_id);
-    
-    if (existingItemIndex !== -1) {
-      showError('Product already added. Please edit the existing item or remove it first.');
-      return;
-    }
-
+    // Add new item as a separate entry (no merging logic)
     const subtotal = quantity * rate;
     const gstAmount = (subtotal * gst) / 100;
     const total = subtotal + gstAmount;
@@ -239,6 +232,8 @@ const SupplierPurchasePage = () => {
       items: [...prev.items, newItem]
     }));
 
+    showSuccess('Item added successfully');
+
     // Reset current item
     setCurrentItem({
       product_id: '',
@@ -248,8 +243,6 @@ const SupplierPurchasePage = () => {
       rate: '',
       gst: '0'
     });
-
-    showSuccess('Item added successfully');
   };
 
   const addCharge = () => {

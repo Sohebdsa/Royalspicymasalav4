@@ -4,7 +4,7 @@ import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-re
 // Global counter to persist across modal sessions
 let globalMixCounter = 1;
 
-const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
+const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete }) => {
   const [totalBudget, setTotalBudget] = useState('');
   const [mixName, setMixName] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -38,7 +38,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
 
   // Helper function to check if product has valid price
   const hasValidPrice = useCallback((product) => {
-    const price = Number(product.retail_price || product.price || 0);
+    const price = Number(product.caterer_price || product.price || 0);
     return price > 0;
   }, []);
 
@@ -52,7 +52,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
     // Get products with their prices
     const productsWithPrices = selectedProducts.map(product => ({
       ...product,
-      price: Number(product.retail_price || product.price || 0)
+      price: Number(product.caterer_price || product.price || 0)
     })).filter(product => product.price > 0);
 
     if (productsWithPrices.length === 0) {
@@ -130,43 +130,27 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
     return Object.keys(newErrors).length === 0;
   }, [totalBudget, selectedProducts, hasValidPrice, isProductInStock, mixName]);
 
-  // Add mix to cart
+  // Add mix to cart - directly adds mix to parent component
   const handleAddMixToCart = useCallback(() => {
     if (!validateMix() || !mixCalculation) return;
-    const mixId = `mix-${globalMixCounter}`;
-    globalMixCounter += 1;
     
-    const totalWeight = mixCalculation.mixItems.reduce((sum, item) => sum + (parseFloat(item.calculatedQuantity) || 0), 0);
-    const customDetails = {
-      mixItems: mixCalculation.mixItems,
+    // Generate mix data for parent component
+    const mixData = {
+      mixProducts: mixCalculation.mixItems.map(item => ({
+        ...item,
+        product_id: item.id,
+        product_name: item.name,
+        calculatedQuantity: item.calculatedQuantity,
+        unit: item.unit || 'kg'
+      })),
+      mixName: mixName || `Mix ${globalMixCounter}`,
       totalBudget: Number(totalBudget),
-      itemCount: mixCalculation.mixItems.length,
-      totalWeight: totalWeight,
-      mixNumber: globalMixCounter - 1,
-      mixName: mixName || `Mix ${globalMixCounter - 1}`
+      mixItems: mixCalculation.mixItems
     };
     
-    const mixCartItem = {
-      id: mixId,
-      name: mixName || `Mix ${globalMixCounter - 1}`,
-      price: Number(totalBudget),
-      quantity: 1,
-      isMix: true,
-      source: 'mix-calculator',
-      custom_details: customDetails,
-      displayName: mixName || `Mix ${globalMixCounter - 1}`,
-      unit: 'mix',
-      totalWeight: totalWeight,
-      mixNumber: globalMixCounter - 1
-    };
-    
-    onAddToCart(mixCartItem);
-    setTotalBudget('');
-    setMixName('');
-    setSelectedProducts([]);
-    setErrors({});
+    onBatchSelectionComplete(mixData);
     onClose();
-  }, [validateMix, mixCalculation, totalBudget, onAddToCart, onClose, mixName]);
+  }, [validateMix, mixCalculation, onBatchSelectionComplete, onClose, mixName, totalBudget]);
 
   // Available products with enhanced filtering
   const availableProducts = useMemo(() => {
@@ -311,7 +295,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
                           <div className="flex-1">
                             <div className="font-medium text-gray-900 text-sm">{product.name}</div>
                             <div className="text-xs text-gray-600">
-                              ₹{Number(product.retail_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                              ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
                             </div>
                           </div>
                           <button
@@ -353,7 +337,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
                     <div className="flex-1">
                       <div className="font-medium text-gray-900">{product.name}</div>
                       <div className="text-sm text-gray-600">
-                        ₹{Number(product.retail_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                        ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
                       </div>
                     </div>
                     <button
@@ -372,7 +356,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
           {mixCalculation && (
             <div className="bg-green-50/80 backdrop-blur-sm border border-green-200 rounded-lg p-4">
               <h4 className="font-semibold text-green-800 mb-3">
-                Mix {globalMixCounter} Calculation
+                {mixName || `Mix ${globalMixCounter}`} Calculation
               </h4>
               <div className="space-y-2">
                 {mixCalculation.mixItems.map((item, index) => (
@@ -390,7 +374,6 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
                   </div>
                   <div className="flex justify-between text-xs text-green-600">
                     <span>Budget Match:</span>
-                    <span>Perfect Match</span>
                   </div>
                 </div>
               </div>
@@ -420,4 +403,4 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   );
 };
 
-export default MixCalculatorModal;
+export default CatererMixCalculator;

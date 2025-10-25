@@ -178,9 +178,9 @@ const createCustomerBill = async (req, res) => {
   try {
     const { orderId } = req.body;
 
-    // Get order details with items
+    // Get order details with items - allow both 'out_for_delivery' and 'delivered' statuses
     const [orderResult] = await pool.execute(`
-      SELECT * FROM orders WHERE id = ? AND status = 'delivered'
+      SELECT * FROM orders WHERE id = ? AND status IN ('out_for_delivery', 'delivered')
     `, [orderId]);
 
     if (orderResult.length === 0) {

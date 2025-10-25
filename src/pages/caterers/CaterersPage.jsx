@@ -84,8 +84,6 @@ const CaterersPage = () => {
       setLoading(true);
       setError(null);
       
-      console.log('🔄 Fetching caterers...');
-      
       const response = await fetch(`${API_BASE_URL}/caterers`);
       const data = await response.json();
       
