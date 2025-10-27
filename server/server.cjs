@@ -284,18 +284,18 @@ const startServer = async () => {
     console.log('✅ Orders system initialized successfully!');
 
     // Initialize caterer orders system
-    console.log('📋 Initializing caterer orders system...');
-    await initializeCatererOrdersDatabase();
-    console.log('✅ Caterer orders system initialized successfully!');
+    // console.log('📋 Initializing caterer orders system...');
+    // await initializeCatererOrdersDatabase();
+    // console.log('✅ Caterer orders system initialized successfully!');
 
-    // Initialize customers system
-    console.log('👥 Initializing customers system...');
-    const customersInitialized = await initializeCustomersDatabase();
-    if (!customersInitialized) {
-      console.error('❌ Failed to initialize customers system.');
-      process.exit(1);
-    }
-    console.log('✅ Customers system initialized successfully!');
+    // // Initialize customers system
+    // console.log('👥 Initializing customers system...');
+    // const customersInitialized = await initializeCustomersDatabase();
+    // if (!customersInitialized) {
+    //   console.error('❌ Failed to initialize customers system.');
+    //   process.exit(1);
+    // }
+    // console.log('✅ Customers system initialized successfully!');
 
 
 
