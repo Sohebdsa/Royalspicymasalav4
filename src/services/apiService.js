@@ -130,22 +130,15 @@ export const catererSalesService = {
 
   // Create new caterer sale
   createSale: (saleData) => {
-    const formData = new FormData();
+    console.log('createSale called with data:', saleData);
     
-    // Append all form data fields
-    Object.keys(saleData).forEach(key => {
-      if (key === 'items' || key === 'other_charges') {
-        formData.append(key, JSON.stringify(saleData[key]));
-      } else if (key === 'receipt_image' && saleData[key] instanceof File) {
-        formData.append(key, saleData[key]);
-      } else {
-        formData.append(key, saleData[key].toString());
-      }
-    });
-
+    // Send as JSON data to match backend expectations
     return fetch(`${API_BASE_URL}/api/caterer-sales`, {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(saleData),
     }).then(response => response.json());
   },
 

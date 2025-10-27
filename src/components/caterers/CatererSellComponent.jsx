@@ -558,46 +558,97 @@ const CatererSellComponent = () => {
       return;
     }
 
+    if (!sellData.caterer_name) {
+      showError('Caterer name is missing. Please select a caterer again.');
+      return;
+    }
+
     if (currentItems.length === 0) {
       showError('Please add at least one item to continue');
       return;
     }
 
+    // Validate that all required fields have values
+    const requiredFields = ['sell_date', 'payment_option', 'payment_method', 'payment_date'];
+    for (const field of requiredFields) {
+      if (!sellData[field]) {
+        showError(`Please fill in the ${field.replace('_', ' ')}`);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
+
+      // Helper function to send sale data
+      const sendSaleData = async (salePayload) => {
+        try {
+          setLoading(true);
+          const data = await catererSalesService.createSale(salePayload);
+
+          if (data.success) {
+            showSuccess('Sale completed successfully!');
+            navigate('/caterers');
+          } else {
+            showError(data.message || 'Failed to complete sale');
+          }
+        } catch (error) {
+          console.error('Error completing sale:', error);
+          showError('Failed to complete sale');
+        } finally {
+          setLoading(false);
+        }
+      };
 
       const { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal } = calculateTotals();
       const paymentAmount = getPaymentAmount();
 
-      // Create FormData for file upload
-      const formData = new FormData();
-      formData.append('caterer_id', sellData.caterer_id);
-      formData.append('bill_number', billNumber);
-      formData.append('sell_date', sellData.sell_date);
-      formData.append('items', JSON.stringify(currentItems));
-      formData.append('other_charges', JSON.stringify(sellData.other_charges));
-      formData.append('subtotal', subtotal.toString());
-      formData.append('total_gst', totalGst.toString());
-      formData.append('items_total', itemsTotal.toString());
-      formData.append('other_charges_total', otherChargesTotal.toString());
-      formData.append('grand_total', grandTotal.toString());
-      formData.append('payment_option', sellData.payment_option);
-      formData.append('payment_amount', paymentAmount.toString());
-      formData.append('payment_method', sellData.payment_method);
-      formData.append('payment_date', sellData.payment_date);
+      // Create JSON payload for API
+      const payload = {
+        caterer_id: sellData.caterer_id,
+        bill_number: billNumber,
+        sell_date: sellData.sell_date,
+        items: currentItems,
+        other_charges: sellData.other_charges,
+        subtotal: subtotal,
+        total_gst: totalGst,
+        items_total: itemsTotal,
+        other_charges_total: otherChargesTotal,
+        grand_total: grandTotal,
+        payment_option: sellData.payment_option,
+        payment_amount: paymentAmount,
+        payment_method: sellData.payment_method,
+        payment_date: sellData.payment_date
+      };
 
+      // Handle receipt image by converting to base64 if it exists
       if (sellData.receipt_image) {
-        formData.append('receipt_image', sellData.receipt_image);
+        try {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64String = event.target.result;
+            payload.receipt_image = {
+              filename: sellData.receipt_image.name,
+              data: base64String,
+              size: sellData.receipt_image.size,
+              type: sellData.receipt_image.type
+            };
+            
+            // Send the data with the image
+            sendSaleData(payload);
+          };
+          reader.readAsDataURL(sellData.receipt_image);
+          return; // Wait for file to be read
+        } catch (error) {
+          console.error('Error reading receipt image:', error);
+          // Continue without image
+          sendSaleData(payload);
+          return;
+        }
       }
 
-      const data = await catererSalesService.createSale(sellData);
-
-      if (data.success) {
-        showSuccess('Sale completed successfully!');
-        navigate('/caterers');
-      } else {
-        showError(data.message || 'Failed to complete sale');
-      }
+      // Send the data without image
+      sendSaleData(payload);
 
     } catch (error) {
       console.error('Error completing sale:', error);

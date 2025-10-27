@@ -28,6 +28,7 @@ const supplierPurchaseRoutes = require('./suppliers/supplierPurchaseRoutes.cjs')
 const paymentRecordsRoutes = require('./suppliers/paymentRecordsRoutes.cjs');
 const inventoryRoutes = require('./inventory/inventoryRoutes.cjs');
 const catererRoutes = require('./caterers/catererRoutes.cjs');
+const catererSalesRoutes = require('./caterers/catererSalesRoutes.cjs');
 const ordersRoutes = require('./orders/ordersRoutes.cjs');
 const catererOrdersRoutes = require('./caterer-orders/catererOrdersRoutes.cjs');
 const customersRoutes = require('./customers/customersRoutes.cjs');
@@ -119,6 +120,7 @@ app.use('/api/supplier-purchases', supplierPurchaseRoutes);
 app.use('/api/payment-records', paymentRecordsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/caterers', catererRoutes);
+app.use('/api/caterer-sales', catererSalesRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/caterer-orders', catererOrdersRoutes);
 app.use('/api/customers', customersRoutes);

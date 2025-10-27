@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PlusIcon, UserGroupIcon, ClockIcon, DocumentTextIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { useToast } from '../../contexts/ToastContext';
 import AddCatererDialog from '../../components/caterers/AddCatererDialog';
@@ -60,6 +61,7 @@ const EmptyState = ({ message }) => (
 );
 
 const CaterersPage = () => {
+  const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
 
   // Dialog state management
@@ -247,14 +249,24 @@ const CaterersPage = () => {
               )}
             </p>
           </div>
-          <button
-            onClick={handleAddCaterer}
-            disabled={loading}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Add Caterer
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => navigate('/caterers/sales-history')}
+              disabled={loading}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <DocumentTextIcon className="h-5 w-5 mr-2" />
+              Caterers Selling History
+            </button>
+            <button
+              onClick={handleAddCaterer}
+              disabled={loading}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <PlusIcon className="h-5 w-5 mr-2" />
+              Add Caterer
+            </button>
+          </div>
         </div>
 
         {/* Error Message */}

@@ -24,6 +24,7 @@ import CaterersPage from './pages/caterers/CaterersPage';
 import CatererSellPage from './pages/caterers/CatererSellPage';
 import CatererOrdersPage from './pages/caterer-orders/CatererOrdersPage';
 import CatererHistoryPage from './pages/caterer-orders/caterer-history/CatererHistoryPage';
+import CatererSalesHistoryPage from './pages/caterers/CatererSalesHistoryPage';
 import FinancialTrackerPage from './pages/financial-tracker/FinancialTrackerPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import CustomerOnlinePage from './pages/customer-online/CustomerOnlinePage';
@@ -64,6 +65,7 @@ function App() {
                     <Route path="caterers/:catererId/sell" element={<CatererSellPage />} />
                     <Route path="caterer-orders" element={<CatererOrdersPage />} />
                     <Route path="caterer-orders/caterer-history" element={<CatererHistoryPage />} />
+                    <Route path="caterers/sales-history" element={<CatererSalesHistoryPage />} />
                     <Route path="financial-tracker" element={<FinancialTrackerPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
