@@ -19,6 +19,9 @@ const { initializeCatererOrdersDatabase } = require('./caterer-orders/catererOrd
 const { initializeCustomersDatabase } = require('./customers/customersDatabase.cjs');
 
 
+const { initializeCatererSalesDatabase } = require('./caterers/catererSalesDatabase.cjs');// my sale caterer
+
+
 const adminAuthRoutes = require('./login/adminAuthRoutes.cjs');
 const productsRoutes = require('./products/index.cjs');
 const expenseRoutes = require('./financial/expenseRoutes.cjs');
@@ -128,8 +131,8 @@ app.use('/api/customers', customersRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Royal Spicy Masala API is running',
     timestamp: new Date().toISOString(),
     staticRoutes: {
@@ -170,7 +173,7 @@ app.get('/api/test-caterer-images', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('🚨 Server Error:', err.stack);
-  res.status(500).json({ 
+  res.status(500).json({
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
@@ -178,7 +181,7 @@ app.use((err, req, res, next) => {
 
 // 404 handler
 app.use('*', (req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     message: 'Route not found',
     requestedPath: req.originalUrl,
     availableEndpoints: {
@@ -274,28 +277,23 @@ const startServer = async () => {
     // Initialize caterers system
     await initializeCaterersSystem();
 
-    // Initialize orders system
-    console.log('📋 Initializing orders system...');
-    const ordersInitialized = await initializeOrdersDatabase();
-    if (!ordersInitialized) {
-      console.error('❌ Failed to initialize orders system.');
+    // Initialize caterers system
+    await initializeCaterersSystem();
+
+    // Initialize caterer sales system
+    console.log('💰 Initializing caterer sales system...');
+    await initializeCatererSalesDatabase();
+    console.log('✅ Caterer sales system initialized successfully!');
+
+
+    // Initialize customers system
+    console.log('👥 Initializing customers system...');
+    const customersInitialized = await initializeCustomersDatabase();
+    if (!customersInitialized) {
+      console.error('❌ Failed to initialize customers system.');
       process.exit(1);
     }
-    console.log('✅ Orders system initialized successfully!');
-
-    // Initialize caterer orders system
-    // console.log('📋 Initializing caterer orders system...');
-    // await initializeCatererOrdersDatabase();
-    // console.log('✅ Caterer orders system initialized successfully!');
-
-    // // Initialize customers system
-    // console.log('👥 Initializing customers system...');
-    // const customersInitialized = await initializeCustomersDatabase();
-    // if (!customersInitialized) {
-    //   console.error('❌ Failed to initialize customers system.');
-    //   process.exit(1);
-    // }
-    // console.log('✅ Customers system initialized successfully!');
+    console.log('✅ Customers system initialized successfully!');
 
 
 

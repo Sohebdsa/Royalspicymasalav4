@@ -94,7 +94,6 @@ const CaterersPage = () => {
       }
       
       if (data.success) {
-        console.log(`✅ Fetched ${data.caterers.length} caterers`);
         setCaterers(data.caterers || []);
       } else {
         throw new Error(data.message || 'Failed to fetch caterers');

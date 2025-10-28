@@ -64,6 +64,9 @@ const initializeDatabase = async () => {
     connection.release();
     // Initialize caterers table after suppliers
     await initializeCaterers(pool);
+    // Initialize caterer sales tables
+    const { initializeCatererSalesDatabase } = require('../caterers/catererSalesDatabase.cjs');
+    await initializeCatererSalesDatabase();
     console.log('✅ Database tables initialized successfully!');
     return true;
   } catch (error) {

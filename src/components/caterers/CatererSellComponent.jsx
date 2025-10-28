@@ -312,10 +312,18 @@ const CatererSellComponent = () => {
   };
 
   const handleBatchSelection = (selectedItem) => {
+    // Extract batch information for database storage
+    const itemWithBatchInfo = {
+      ...selectedItem,
+      // Extract batch information from the batches array
+      batch: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].batch : null,
+      expiry_date: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].expiry_date : null
+    };
+
     // Add new item as a separate entry (no merging logic)
     setSellData(prev => ({
       ...prev,
-      items: [...prev.items, selectedItem]
+      items: [...prev.items, itemWithBatchInfo]
     }));
 
     showSuccess('Item added successfully');

@@ -67,7 +67,12 @@ export default function CatererBatchSelectionDialog({
           }
           return prev;
         }
-        const entry = { batch: batchId, quantity: clamped, unit: batchInfo.unit };
+        const entry = {
+          batch: batchId,
+          quantity: clamped,
+          unit: batchInfo.unit,
+          expiry_date: batchInfo.expiry_date || null
+        };
         if (idx >= 0) {
           const next = [...prev];
           next[idx] = entry;
@@ -310,6 +315,7 @@ export default function CatererBatchSelectionDialog({
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Batch</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Available</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Selected</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -324,9 +330,32 @@ export default function CatererBatchSelectionDialog({
                     // For mix products, allow selection if there's still quantity needed
                     const canMore = selQty < parseFloat(b.totalQuantity) && remaining > 0;
                     
+                    // Calculate days until expiry for color coding
+                    const expiryDate = b.expiry_date ? new Date(b.expiry_date) : null;
+                    const now = new Date();
+                    const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24)) : null;
+                    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30;
+                    const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                    
                     return (
-                      <tr key={i} className={selQty > 0 ? 'bg-green-50' : ''}>
+                      <tr key={i} className={`${selQty > 0 ? 'bg-green-50' : ''} ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : ''}`}>
                         <td className="px-4 py-3 font-mono">{b.batch}</td>
+                        <td className="px-4 py-3">
+                          {b.expiry_date ? (
+                            <div className="text-sm">
+                              <div className={isExpired ? 'text-red-600 font-medium' : isExpiringSoon ? 'text-yellow-600 font-medium' : 'text-gray-600'}>
+                                {new Date(b.expiry_date).toLocaleDateString('en-IN')}
+                              </div>
+                              {daysUntilExpiry !== null && (
+                                <div className={`text-xs ${isExpired ? 'text-red-500' : isExpiringSoon ? 'text-yellow-500' : 'text-gray-500'}`}>
+                                  {isExpired ? 'Expired' : `${daysUntilExpiry} days left`}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm">No expiry</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">{parseFloat(b.totalQuantity).toFixed(3)} {b.unit}</td>
                         <td className="px-4 py-3">
                           <QuantityInput

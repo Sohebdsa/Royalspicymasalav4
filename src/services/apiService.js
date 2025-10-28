@@ -129,17 +129,37 @@ export const catererSalesService = {
   },
 
   // Create new caterer sale
-  createSale: (saleData) => {
+  createSale: async (saleData) => {
     console.log('createSale called with data:', saleData);
     
-    // Send as JSON data to match backend expectations
-    return fetch(`${API_BASE_URL}/api/caterer-sales`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(saleData),
-    }).then(response => response.json());
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/caterer-sales/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(saleData),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to create sale');
+      }
+      
+      console.log('Sale created successfully:', result);
+      
+      // Invalidate related caches after successful sale creation
+      if (cacheUtils.invalidate) {
+        cacheUtils.invalidate(`/api/caterer-sales/history/${saleData.caterer_id}`);
+        cacheUtils.invalidate(`/api/caterers/${saleData.caterer_id}`);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in createSale:', error);
+      throw error;
+    }
   },
 
   // Get caterer sales history with caching
@@ -153,6 +173,40 @@ export const catererSalesService = {
     params,
     { ttl: 3 * 60 * 1000 } // 3 minutes cache for sales history
   ),
+
+  // Get all sales for a specific caterer (no cache for real-time data)
+  getCatererSales: async (catererId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/caterer-sales/caterer/${catererId}`);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch sales');
+      }
+      
+      return result.sales;
+    } catch (error) {
+      console.error('Error fetching caterer sales:', error);
+      throw error;
+    }
+  },
+
+  // Get sale details with items and payments
+  getSaleDetails: async (saleId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/caterer-sales/${saleId}/details`);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch sale details');
+      }
+      
+      return result.sale;
+    } catch (error) {
+      console.error('Error fetching sale details:', error);
+      throw error;
+    }
+  },
 };
 
 // Cache management utilities
@@ -202,6 +256,14 @@ export const cacheService = {
   forceRefresh: async (endpoint, params = {}, fetchFn) => {
     console.log(`Force refreshing cache for ${endpoint}`);
     return withCache(endpoint, fetchFn, params, { forceRefresh: true });
+  },
+  
+  // Invalidate specific cache entry
+  invalidateCache: (key) => {
+    if (cacheUtils.invalidate) {
+      cacheUtils.invalidate(key);
+      console.log(`Cache invalidated for: ${key}`);
+    }
   },
 };
 
