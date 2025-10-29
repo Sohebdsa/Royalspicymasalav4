@@ -17,11 +17,11 @@ import {
   EllipsisHorizontalIcon,
   EyeIcon,
   PhotoIcon,
-  XMarkIcon
+  XMarkIcon,
+  CubeIcon
 } from '@heroicons/react/24/outline';
 import PaymentDialog from '../suppliers/PaymentDialog';
 import { useToast } from '../../contexts/ToastContext';
-
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const { showError } = useToast();
@@ -32,7 +32,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const [receiptTitle, setReceiptTitle] = useState('');
   const [expandedMixItems, setExpandedMixItems] = useState({});
 
-
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
@@ -41,7 +40,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       year: 'numeric'
     });
   };
-
 
   const formatTime = (timeString) => {
     if (!timeString) return '';
@@ -52,7 +50,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     });
   };
 
-
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -60,7 +57,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       minimumFractionDigits: 2
     }).format(amount || 0);
   };
-
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -79,7 +75,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
-
   const getStatusIcon = (status) => {
     switch (status) {
       case 'paid':
@@ -93,7 +88,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         return <ExclamationCircleIcon className="h-4 w-4" />;
     }
   };
-
 
   const getPaymentMethodIcon = (method) => {
     switch (method) {
@@ -112,7 +106,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
-
   const getPaymentMethodLabel = (method) => {
     const labels = {
       cash: 'Cash',
@@ -125,17 +118,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     return labels[method] || method;
   };
 
-
   const handleCollectPayment = () => {
     setShowPaymentDialog(true);
   };
-
 
   const handlePaymentSuccess = () => {
     setShowPaymentDialog(false);
     onPaymentUpdate();
   };
-
 
   const handleViewReceipt = (imageUrl, title) => {
     setCurrentReceiptImage(imageUrl);
@@ -143,14 +133,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     setShowReceiptModal(true);
   };
 
-
   const closeReceiptModal = () => {
     setShowReceiptModal(false);
     setCurrentReceiptImage(null);
     setReceiptTitle('');
   };
 
-  const toggleMixItem = (index) => {
+  const toggleMixItem = (e, index) => {
+    e.stopPropagation(); // Prevent parent card collapse
     setExpandedMixItems(prev => ({
       ...prev,
       [index]: !prev[index]
@@ -159,9 +149,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
 
   // Check if an item is a mix product
   const isMixProduct = (item) => {
-    return item.isMixHeader || (item.isMix && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0);
+    if (item.is_mix === true || item.is_mix === 1) {
+      return true;
+    }
+    if (item.mix_items && Array.isArray(item.mix_items) && item.mix_items.length > 0) {
+      return true;
+    }
+    return false;
   };
-
 
   // Safety check for bill data
   if (!bill) {
@@ -176,7 +171,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const grandTotal = parseFloat(bill.grand_total || 0);
   const totalPaid = parseFloat(bill.total_paid || 0);
   const pendingAmount = grandTotal - totalPaid;
-
 
   return (
     <>
@@ -224,7 +218,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               </div>
             </div>
 
-
             <div className="text-right">
               <div className="flex items-center justify-end space-x-2 mb-1">
                 <div className="text-lg font-semibold text-gray-900">
@@ -239,7 +232,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
             </div>
           </div>
         </div>
-
 
         {/* Expanded Content */}
         {isExpanded && (
@@ -279,7 +271,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 </div>
               </div>
 
-
               {/* Sale Items */}
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
@@ -287,46 +278,63 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   Sale Items
                 </h4>
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {(bill.items && Array.isArray(bill.items) && bill.items.length > 0) ? bill.items.map((item, index) => (
-                      <div key={index} className="border-b border-gray-200 last:border-b-0 pb-2 last:pb-0">
-                        {/* Main Item Row */}
-                        <div className="flex justify-between items-center text-sm">
-                          <div className="flex-1 flex items-center">
+                      <div key={index} className="border-b border-gray-200 last:border-b-0 pb-3 last:pb-0">
+                        {/* Main Item Row - Wrapped in div to prevent event bubbling */}
+                        <div 
+                          className="flex justify-between items-start text-sm"
+                          onClick={(e) => {
+                            // Only toggle if it's a mix product
+                            if (isMixProduct(item)) {
+                              toggleMixItem(e, index);
+                            }
+                          }}
+                        >
+                          <div className="flex-1 flex items-start">
                             {/* Expand/Collapse button for mix products */}
-                            {isMixProduct(item) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleMixItem(index);
-                                }}
-                                className="mr-2 text-gray-400 hover:text-gray-600 transition-colors"
-                              >
-                                {expandedMixItems[index] ? (
-                                  <ChevronDownIcon className="h-4 w-4" />
-                                ) : (
-                                  <ChevronRightIcon className="h-4 w-4" />
-                                )}
-                              </button>
-                            )}
-                            <div className={!isMixProduct(item) ? 'ml-6' : ''}>
-                              <span className="font-medium">
-                                {item.isMixHeader ? item.mixName || item.product_name : item.product_name || 'Unknown Product'}
-                              </span>
-                              {isMixProduct(item) && (
-                                <span className="ml-2 text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
-                                  {item.isMixHeader ? 'Custom Mix' : 'Mix Item'}
-                                </span>
+                            <div className="flex items-center min-w-[24px] pt-0.5">
+                              {isMixProduct(item) ? (
+                                <button
+                                  onClick={(e) => toggleMixItem(e, index)}
+                                  className="text-orange-500 hover:text-orange-700 transition-colors cursor-pointer"
+                                  title="Click to view mix contents"
+                                >
+                                  {expandedMixItems[index] ? (
+                                    <ChevronDownIcon className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRightIcon className="h-4 w-4" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="w-4"></div>
                               )}
-                              <span className="text-gray-600 ml-2">
-                                ({item.quantity || 0} {item.unit || 'unit'} × ₹{parseFloat(item.rate || 0).toFixed(2)})
-                              </span>
+                            </div>
+
+                            <div className="ml-2 flex-1">
+                              <div className="flex items-center flex-wrap gap-2">
+                                <span className="font-medium text-gray-900">
+                                  {item.product_name || 'Unknown Product'}
+                                </span>
+                                {isMixProduct(item) && (
+                                  <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium">
+                                    <CubeIcon className="h-3 w-3 mr-1" />
+                                    Mix ({item.mix_items?.length || 0})
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-600 mt-0.5">
+                                {item.quantity || 0} {item.unit || 'unit'} × ₹{parseFloat(item.rate || 0).toFixed(2)}
+                              </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-medium">₹{parseFloat(item.total_amount || 0).toFixed(2)}</div>
+
+                          <div className="text-right ml-4">
+                            <div className="font-semibold text-gray-900">
+                              ₹{parseFloat(item.total_amount || 0).toFixed(2)}
+                            </div>
                             {parseFloat(item.gst_amount || 0) > 0 && (
-                              <div className="text-xs text-gray-500">
+                              <div className="text-xs text-gray-500 mt-0.5">
                                 GST: ₹{parseFloat(item.gst_amount || 0).toFixed(2)}
                               </div>
                             )}
@@ -335,46 +343,55 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
 
                         {/* Expanded Mix Items */}
                         {isMixProduct(item) && expandedMixItems[index] && (
-                          <div className="ml-10 mt-2 bg-orange-50 rounded-lg p-3 border border-orange-200">
-                            <div className="text-xs font-medium text-orange-800 mb-2 flex items-center">
-                              <DocumentTextIcon className="h-3 w-3 mr-1" />
-                              Mix Contents ({item.isMixHeader ? item.mixItems?.length || 0 : 'N/A'} items)
+                          <div 
+                            className="ml-6 mt-3 bg-orange-50 rounded-lg p-3 border border-orange-200"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="text-xs font-semibold text-orange-900 mb-2 flex items-center">
+                              <CubeIcon className="h-3.5 w-3.5 mr-1.5" />
+                              Mix Contents ({item.mix_items?.length || 0} items)
                             </div>
-                            <div className="space-y-1.5">
-                              {item.isMixHeader && item.mixItems ? (
-                                item.mixItems.map((mixItem, mixIndex) => (
-                                  <div key={mixIndex} className="flex justify-between items-center text-xs text-orange-700 bg-white/60 rounded p-2">
+                            <div className="space-y-2">
+                              {item.mix_items && item.mix_items.length > 0 ? (
+                                item.mix_items.map((mixItem, mixIndex) => (
+                                  <div 
+                                    key={mixIndex} 
+                                    className="flex justify-between items-start text-xs bg-white rounded p-2.5 border border-orange-100"
+                                  >
                                     <div className="flex-1">
-                                      <span className="font-medium">{mixItem.name || mixItem.product_name || 'Unknown'}</span>
-                                      <span className="text-orange-600 ml-2">
-                                        {mixItem.calculatedQuantity || mixItem.quantity || 0} {mixItem.unit || 'unit'}
-                                      </span>
+                                      <div className="font-medium text-gray-900">
+                                        {mixItem.product_name || 'Unknown Product'}
+                                      </div>
+                                      <div className="text-orange-700 mt-0.5 space-x-2">
+                                        <span>{parseFloat(mixItem.quantity || 0).toFixed(3)} {mixItem.unit || 'unit'}</span>
+                                        {mixItem.batch_number && (
+                                          <span className="text-orange-600">
+                                            • Batch: {mixItem.batch_number}
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="text-orange-600 font-medium">
-                                      ₹{parseFloat(mixItem.allocatedBudget || mixItem.total_amount || 0).toFixed(2)}
-                                    </div>
-                                  </div>
-                                ))
-                              ) : item.mixItems ? (
-                                item.mixItems.map((mixItem, mixIndex) => (
-                                  <div key={mixIndex} className="flex justify-between items-center text-xs text-orange-700 bg-white/60 rounded p-2">
-                                    <div className="flex-1">
-                                      <span className="font-medium">{mixItem.name || mixItem.product_name || 'Unknown'}</span>
-                                      <span className="text-orange-600 ml-2">
-                                        {mixItem.calculatedQuantity || mixItem.quantity || 0} {mixItem.unit || 'unit'}
-                                      </span>
-                                    </div>
-                                    <div className="text-orange-600 font-medium">
-                                      ₹{parseFloat(mixItem.allocatedBudget || mixItem.total_amount || 0).toFixed(2)}
+                                    <div className="text-right ml-3">
+                                      <div className="font-semibold text-orange-700">
+                                        ₹{parseFloat(mixItem.allocatedBudget || 0).toFixed(2)}
+                                      </div>
+                                      <div className="text-[10px] text-gray-500 mt-0.5">
+                                        @ ₹{parseFloat(mixItem.rate || 0).toFixed(2)}/{mixItem.unit || 'unit'}
+                                      </div>
                                     </div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="text-xs text-orange-600 text-center py-2">
-                                  No mix items details available
+                                <div className="text-xs text-orange-600 text-center py-3 bg-white rounded">
+                                  No mix items available
                                 </div>
                               )}
                             </div>
+                            {item.batch_number && (
+                              <div className="mt-2 pt-2 border-t border-orange-200 text-xs text-orange-700">
+                                <span className="font-medium">Mix Batch:</span> {item.batch_number}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -427,7 +444,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   </div>
                 </div>
               </div>
-
 
               {/* Payment Information */}
               <div>
@@ -516,7 +532,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                       </div>
                     )}
 
-
                     {bill.payment_status !== 'paid' && pendingAmount > 0 && (
                       <div className="flex justify-end">
                         <button
@@ -535,7 +550,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         )}
       </div>
 
-
       {/* Payment Dialog */}
       <PaymentDialog
         isOpen={showPaymentDialog}
@@ -543,7 +557,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         bill={bill}
         onPaymentSuccess={handlePaymentSuccess}
       />
-
 
       {/* Receipt Modal */}
       {showReceiptModal && (
@@ -593,6 +606,5 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     </>
   );
 };
-
 
 export default CatererBillCard;

@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 
+
 const initializeCatererSalesDatabase = async () => {
   try {
     const connection = await mysql.createConnection({
@@ -8,6 +9,7 @@ const initializeCatererSalesDatabase = async () => {
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'spicymasalav2'
     });
+
 
     // Create caterer_sales table (main bill/invoice table)
     await connection.execute(`
@@ -35,7 +37,8 @@ const initializeCatererSalesDatabase = async () => {
       )
     `);
 
-    // Create caterer_sale_items table (line items for each bill)
+
+    // Create caterer_sale_items table (line items for each bill, including mix products)
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS caterer_sale_items (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -51,15 +54,24 @@ const initializeCatererSalesDatabase = async () => {
         total_amount DECIMAL(12,2) NOT NULL,
         batch_number VARCHAR(100) NULL,
         expiry_date DATE NULL,
+        is_mix BOOLEAN DEFAULT FALSE,
+        mix_id INT NULL,
+        parent_sale_item_id INT NULL,
+        mix_item_data JSON NULL,
         notes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         
         FOREIGN KEY (sale_id) REFERENCES caterer_sales(id) ON DELETE CASCADE,
+        FOREIGN KEY (parent_sale_item_id) REFERENCES caterer_sale_items(id) ON DELETE CASCADE,
         INDEX idx_sale_id (sale_id),
         INDEX idx_product_id (product_id),
-        INDEX idx_product_name (product_name)
+        INDEX idx_product_name (product_name),
+        INDEX idx_mix_id (mix_id),
+        INDEX idx_parent_sale_item_id (parent_sale_item_id),
+        INDEX idx_is_mix (is_mix)
       )
     `);
+
 
     // Create caterer_sale_payments table (payment records for each bill)
     await connection.execute(`
@@ -86,6 +98,7 @@ const initializeCatererSalesDatabase = async () => {
       )
     `);
 
+
     // Create caterer_sale_other_charges table (additional charges)
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS caterer_sale_other_charges (
@@ -102,6 +115,7 @@ const initializeCatererSalesDatabase = async () => {
       )
     `);
 
+
     // Migrate existing table if it exists (change product_id from INT to VARCHAR)
     try {
       await connection.execute(`
@@ -115,9 +129,73 @@ const initializeCatererSalesDatabase = async () => {
       }
     }
 
+    // Add new columns for mix product support
+    const mixColumns = [
+      { name: 'is_mix', type: 'BOOLEAN DEFAULT FALSE' },
+      { name: 'mix_id', type: 'INT NULL' },
+      { name: 'parent_sale_item_id', type: 'INT NULL' },
+      { name: 'mix_item_data', type: 'JSON NULL' }
+    ];
+
+    for (const column of mixColumns) {
+      try {
+        await connection.execute(`
+          ALTER TABLE caterer_sale_items 
+          ADD COLUMN ${column.name} ${column.type}
+        `);
+        console.log(`✅ Added column: ${column.name}`);
+      } catch (error) {
+        if (error.code === 'ER_DUP_FIELDNAME') {
+          console.log(`ℹ️  Column ${column.name} already exists, skipping...`);
+        } else {
+          console.log(`⚠️  Error adding column ${column.name}:`, error.message);
+        }
+      }
+    }
+
+    // Add foreign key constraint for parent_sale_item_id if not exists
+    try {
+      await connection.execute(`
+        ALTER TABLE caterer_sale_items
+        ADD CONSTRAINT fk_parent_sale_item
+        FOREIGN KEY (parent_sale_item_id) REFERENCES caterer_sale_items(id) ON DELETE CASCADE
+      `);
+      console.log('✅ Added foreign key constraint for parent_sale_item_id');
+    } catch (error) {
+      if (error.code === 'ER_DUP_KEYNAME' || error.code === 'ER_FK_DUP_NAME') {
+        console.log('ℹ️  Foreign key constraint already exists, skipping...');
+      } else {
+        console.log('⚠️  Error adding foreign key constraint:', error.message);
+      }
+    }
+
+    // Add indexes for mix product columns
+    const mixIndexes = [
+      { name: 'idx_mix_id', column: 'mix_id' },
+      { name: 'idx_parent_sale_item_id', column: 'parent_sale_item_id' },
+      { name: 'idx_is_mix', column: 'is_mix' }
+    ];
+
+    for (const index of mixIndexes) {
+      try {
+        await connection.execute(`
+          CREATE INDEX ${index.name} ON caterer_sale_items(${index.column})
+        `);
+        console.log(`✅ Created index: ${index.name}`);
+      } catch (error) {
+        if (error.code === 'ER_DUP_KEYNAME') {
+          console.log(`ℹ️  Index ${index.name} already exists, skipping...`);
+        } else {
+          console.log(`⚠️  Error creating index ${index.name}:`, error.message);
+        }
+      }
+    }
+
+
     // Drop existing triggers if they exist
     await connection.query('DROP TRIGGER IF EXISTS after_caterer_sale_insert');
     await connection.query('DROP TRIGGER IF EXISTS after_payment_insert');
+
 
     // Create trigger to update caterer balance after sale
     await connection.query(`
@@ -134,6 +212,7 @@ const initializeCatererSalesDatabase = async () => {
         WHERE id = NEW.caterer_id;
       END
     `);
+
 
     // Create trigger to update payment status after payment
     await connection.query(`
@@ -177,7 +256,9 @@ const initializeCatererSalesDatabase = async () => {
       END
     `);
 
+
     console.log('✅ Caterer sales database tables initialized successfully');
+    console.log('✅ Mix product support columns and indexes added');
     await connection.end();
     return true;
   } catch (error) {
@@ -185,6 +266,7 @@ const initializeCatererSalesDatabase = async () => {
     throw error;
   }
 };
+
 
 module.exports = {
   initializeCatererSalesDatabase

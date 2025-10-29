@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-react';
+import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 
 const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete }) => {
   const [totalBudget, setTotalBudget] = useState('');
@@ -8,6 +8,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
   const [errors, setErrors] = useState({});
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedMixProducts, setExpandedMixProducts] = useState(new Set());
 
   // Helper function to check if product is in stock
   const isProductInStock = useCallback((product) => {
@@ -37,6 +38,20 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
   const hasValidPrice = useCallback((product) => {
     const price = Number(product.caterer_price || product.price || 0);
     return price > 0;
+  }, []);
+
+  // Helper function to check if product is a mix product
+  const isMixProduct = useCallback((product) => {
+    return product.is_mix === true || product.type === 'mix' || product.mix_products;
+  }, []);
+
+  // Helper function to get products inside a mix product
+  const getMixProducts = useCallback((product) => {
+    if (product.mix_products && Array.isArray(product.mix_products)) {
+      return product.mix_products;
+    }
+    // If mix_products is not available, return empty array
+    return [];
   }, []);
 
   // Calculate mix details with equal division and last-item adjustment
@@ -94,15 +109,38 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
     if (selectedProducts.find(p => p.id === product.id)) {
       return; // Already added
     }
-    setSelectedProducts(prev => [...prev, product]);
+    
+    // If product is from a mix, add the parent mix product instead
+    if (product.isFromMix && product.parentMixId) {
+      const parentMix = products.find(p => p.id === product.parentMixId);
+      if (parentMix && !selectedProducts.find(p => p.id === parentMix.id)) {
+        setSelectedProducts(prev => [...prev, parentMix]);
+      }
+    } else {
+      setSelectedProducts(prev => [...prev, product]);
+    }
+    
     setErrors(prev => ({ ...prev, products: null }));
     setDropdownOpen(false);
     setSearchTerm('');
-  }, [selectedProducts]);
+  }, [selectedProducts, products]);
 
   // Remove product from mix
   const removeProductFromMix = useCallback((productId) => {
     setSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  }, []);
+
+  // Toggle mix product expansion
+  const toggleMixProductExpansion = useCallback((productId) => {
+    setExpandedMixProducts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(productId)) {
+        newSet.delete(productId);
+      } else {
+        newSet.add(productId);
+      }
+      return newSet;
+    });
   }, []);
 
   // Validation
@@ -161,8 +199,41 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
       if (searchTerm && !product.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       return true;
     });
-    return filtered;
-  }, [products, selectedProducts, searchTerm, isProductInStock, hasValidPrice]);
+
+    // Expand mix products to show their individual products
+    const expandedProducts = [];
+    filtered.forEach(product => {
+      if (isMixProduct(product)) {
+        const mixProducts = getMixProducts(product);
+        if (mixProducts.length > 0) {
+          // Add the mix product itself
+          expandedProducts.push({
+            ...product,
+            isMixProduct: true,
+            displayName: `${product.name} (Mix - ${mixProducts.length} items)`
+          });
+          
+          // Add individual products from the mix
+          mixProducts.forEach(mixProduct => {
+            expandedProducts.push({
+              ...mixProduct,
+              parentMixId: product.id,
+              parentMixName: product.name,
+              isFromMix: true
+            });
+          });
+        } else {
+          // If no mix products, add as regular product
+          expandedProducts.push(product);
+        }
+      } else {
+        // Regular product
+        expandedProducts.push(product);
+      }
+    });
+
+    return expandedProducts;
+  }, [products, selectedProducts, searchTerm, isProductInStock, hasValidPrice, isMixProduct, getMixProducts]);
 
   // Filter selected products to remove any that became out of stock
   const validSelectedProducts = useMemo(() => {
@@ -283,30 +354,105 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
                         {searchTerm ? 'No products match your search' : 'No available products'}
                       </div>
                     ) : (
-                      availableProducts.map((product) => (
-                        <div
-                          key={product.id}
-                          className="p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer flex items-center justify-between"
-                          onClick={() => addProductToMix(product)}
-                        >
-                          <div className="flex-1">
-                            <div className="font-medium text-gray-900 text-sm">{product.name}</div>
-                            <div className="text-xs text-gray-600">
-                              ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                      availableProducts.map((product) => {
+                        if (product.isMixProduct) {
+                          return (
+                            <div key={product.id}>
+                              {/* Mix Product Header */}
+                              <div
+                                className="p-3 hover:bg-gray-50 border-b border-gray-100 cursor-pointer flex items-center justify-between"
+                                onClick={() => toggleMixProductExpansion(product.id)}
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <ChevronRight
+                                    className={`h-4 w-4 text-gray-500 transition-transform ${
+                                      expandedMixProducts.has(product.id) ? 'rotate-90' : ''
+                                    }`}
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900 text-sm">{product.displayName}</div>
+                                    <div className="text-xs text-gray-600">
+                                      Mix Product • {getMixProducts(product).length} items
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  className="bg-orange-600 text-white px-2 py-1 rounded text-xs hover:bg-orange-700 flex items-center gap-1"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addProductToMix(product);
+                                  }}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  Add Mix
+                                </button>
+                              </div>
+                              
+                              {/* Mix Products List (Expanded) */}
+                              {expandedMixProducts.has(product.id) && (
+                                <div className="ml-6 border-l-2 border-gray-200">
+                                  {getMixProducts(product).map((mixProduct, index) => (
+                                    <div
+                                      key={index}
+                                      className="p-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer flex items-center justify-between"
+                                      onClick={() => addProductToMix(mixProduct)}
+                                    >
+                                      <div className="flex-1">
+                                        <div className="font-medium text-gray-800 text-sm">
+                                          {mixProduct.name}
+                                        </div>
+                                        <div className="text-xs text-gray-600">
+                                          ₹{Number(mixProduct.caterer_price || mixProduct.price || 0).toFixed(2)}/{mixProduct.unit || 'kg'}
+                                        </div>
+                                      </div>
+                                      <button
+                                        className="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 flex items-center gap-1"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          addProductToMix(mixProduct);
+                                        }}
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                        Add
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <button
-                            className="bg-orange-600 text-white px-2 py-1 rounded text-xs hover:bg-orange-700 flex items-center gap-1"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              addProductToMix(product);
-                            }}
-                          >
-                            <Plus className="h-3 w-3" />
-                            Add
-                          </button>
-                        </div>
-                      ))
+                          );
+                        } else {
+                          return (
+                            <div
+                              key={product.id}
+                              className="p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer flex items-center justify-between"
+                              onClick={() => addProductToMix(product)}
+                            >
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 text-sm">
+                                  {product.parentMixName ? `${product.parentMixName} → ${product.name}` : product.name}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                                  {product.parentMixName && (
+                                    <span className="ml-2 text-blue-600">from mix</span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                className="bg-orange-600 text-white px-2 py-1 rounded text-xs hover:bg-orange-700 flex items-center gap-1"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  addProductToMix(product);
+                                }}
+                              >
+                                <Plus className="h-3 w-3" />
+                                Add
+                              </button>
+                            </div>
+                          );
+                        }
+                      })
                     )}
                   </div>
                 </div>
@@ -332,9 +478,36 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
                 {validSelectedProducts.map((product) => (
                   <div key={product.id} className="flex items-center justify-between p-3 bg-orange-50/80 backdrop-blur-sm border border-orange-200 rounded-lg">
                     <div className="flex-1">
-                      <div className="font-medium text-gray-900">{product.name}</div>
+                      <div className="font-medium text-gray-900">
+                        {product.isMixProduct ? (
+                          <span>
+                            {product.name}
+                            <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                              Mix Product
+                            </span>
+                          </span>
+                        ) : product.parentMixName ? (
+                          <span>
+                            {product.parentMixName} → {product.name}
+                            <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                              From Mix
+                            </span>
+                          </span>
+                        ) : (
+                          product.name
+                        )}
+                      </div>
                       <div className="text-sm text-gray-600">
-                        ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                        {product.isMixProduct ? (
+                          <span>
+                            {getMixProducts(product).length} items •
+                            ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                          </span>
+                        ) : (
+                          <span>
+                            ₹{Number(product.caterer_price || product.price || 0).toFixed(2)}/{product.unit || 'kg'}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button

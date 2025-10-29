@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-react';
+import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 
 const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   const [totalBudget, setTotalBudget] = useState('');
@@ -7,6 +7,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   const [errors, setErrors] = useState({});
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedMixProducts, setExpandedMixProducts] = useState(new Set());
 
   // Helper function to check if product is in stock
   const isProductInStock = useCallback((product) => {

@@ -2,18 +2,15 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database.cjs');
 
-
 // Middleware to log requests
 const logRequest = (req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
   next();
 };
 
-
 // Middleware to validate sales data
 const validateSalesData = (req, res, next) => {
   try {
-    // Check if request has JSON data
     if (!req.body || Object.keys(req.body).length === 0) {
       return res.status(400).json({
         success: false,
@@ -22,8 +19,6 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
-
-    // Basic validation - check if it's an object
     if (typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({
         success: false,
@@ -32,8 +27,6 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
-
-    // Validate required fields
     const required = ['caterer_id', 'bill_number', 'sell_date', 'grand_total'];
     const missing = required.filter(field => !req.body[field]);
     
@@ -45,8 +38,6 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
-
-    // Validate items array
     if (!req.body.items || !Array.isArray(req.body.items) || req.body.items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -54,7 +45,6 @@ const validateSalesData = (req, res, next) => {
         error: 'INVALID_ITEMS'
       });
     }
-
 
     next();
   } catch (error) {
@@ -67,8 +57,7 @@ const validateSalesData = (req, res, next) => {
   }
 };
 
-
-// POST /api/caterer-sales/create - Create new caterer sale
+// POST /api/caterer-sales/create - Create new caterer sale with mix product support
 router.post('/create',
   logRequest,
   validateSalesData,
@@ -76,7 +65,6 @@ router.post('/create',
     let connection;
     
     try {
-      // Check if db.pool exists
       if (!db || !db.pool) {
         console.error('❌ Database pool is not configured');
         return res.status(500).json({
@@ -86,12 +74,9 @@ router.post('/create',
         });
       }
 
-
-      // Get connection from pool
       connection = await db.pool.getConnection();
       console.log('✅ Database connection acquired');
       
-      // Start transaction
       await connection.beginTransaction();
       console.log('🔄 Starting transaction for new sale');
       
@@ -128,62 +113,147 @@ router.post('/create',
       const saleId = saleResult.insertId;
       console.log(`✅ Sale created with ID: ${saleId}`);
       
-      // 2. Insert sale items
+      // 2. Insert sale items (including mix products)
       if (saleData.items && saleData.items.length > 0) {
         console.log(`📝 Inserting ${saleData.items.length} sale items...`);
+        
+        let currentMixId = 1; // Mix ID counter for this sale
+        
         for (const item of saleData.items) {
           const amount = (item.quantity || 0) * (item.rate || 0);
           const gstAmount = item.gst_amount || 0;
-          // For mix products, use the provided total amount if available, otherwise calculate normally
           const totalAmount = item.isMix || item.total ? parseFloat(item.total || amount) : (amount + gstAmount);
           
-          // Handle batch information - support both single batch and multiple batches
+          // Check if this is a mix product
+          const isMixProduct = item.isMix || (item.product_id && item.product_id.toString().startsWith('mix-'));
+          
+          // Handle batch information
           let batchNumber = null;
           let expiryDate = null;
           
           if (item.batch) {
-            // Single batch case
             batchNumber = item.batch;
             expiryDate = item.expiry_date || null;
           } else if (item.batches && Array.isArray(item.batches) && item.batches.length > 0) {
-            // Multiple batches case - use the first batch as primary for traceability
             const firstBatch = item.batches[0];
             batchNumber = firstBatch.batch;
             expiryDate = firstBatch.expiry_date || null;
           }
           
-          await connection.execute(
-            `INSERT INTO caterer_sale_items
-             (sale_id, product_id, product_name, quantity, unit, rate,
-              amount, gst_percentage, gst_amount, total_amount, batch_number, expiry_date)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              saleId,
-              item.product_id || null,
-              item.product_name || '',
-              item.quantity || 0,
-              item.unit || 'kg',
-              item.rate || 0,
-              amount || 0,
-              item.gst_percentage || item.gst || 0,
-              gstAmount || 0,
-              totalAmount || 0,
-              batchNumber || null,
-              expiryDate || null
-            ]
-          );
+          if (isMixProduct && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0) {
+            // Insert mix header item
+            console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId})`);
+            
+            const [mixHeaderResult] = await connection.execute(
+              `INSERT INTO caterer_sale_items
+               (sale_id, product_id, product_name, quantity, unit, rate,
+                amount, gst_percentage, gst_amount, total_amount, batch_number, expiry_date,
+                is_mix, mix_id, parent_sale_item_id, mix_item_data)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                saleId,
+                item.product_id || null,
+                item.product_name || '',
+                item.quantity || 0,
+                item.unit || 'mix',
+                item.rate || 0,
+                amount || 0,
+                item.gst_percentage || item.gst || 0,
+                gstAmount || 0,
+                totalAmount || 0,
+                batchNumber || null,
+                expiryDate || null,
+                true, // is_mix
+                currentMixId, // mix_id
+                null, // parent_sale_item_id (null for header)
+                JSON.stringify(item.mixItems) // Store full mix data as JSON backup
+              ]
+            );
+            
+            const mixHeaderId = mixHeaderResult.insertId;
+            
+            // Insert individual mix items
+            console.log(`   └─ Inserting ${item.mixItems.length} items in mix...`);
+            for (const mixItem of item.mixItems) {
+              // Get batch info for mix item
+              let mixItemBatch = null;
+              let mixItemExpiry = null;
+              
+              if (mixItem.batch) {
+                mixItemBatch = mixItem.batch;
+                mixItemExpiry = mixItem.expiry_date || null;
+              } else if (mixItem.batches && Array.isArray(mixItem.batches) && mixItem.batches.length > 0) {
+                const firstBatch = mixItem.batches[0];
+                mixItemBatch = firstBatch.batch;
+                mixItemExpiry = firstBatch.expiry_date || null;
+              }
+              
+              await connection.execute(
+                `INSERT INTO caterer_sale_items
+                 (sale_id, product_id, product_name, quantity, unit, rate,
+                  amount, gst_percentage, gst_amount, total_amount, batch_number, expiry_date,
+                  is_mix, mix_id, parent_sale_item_id, mix_item_data)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  saleId,
+                  mixItem.product_id || mixItem.id || null,
+                  mixItem.product_name || mixItem.name || '',
+                  mixItem.calculatedQuantity || mixItem.quantity || 0,
+                  mixItem.unit || 'kg',
+                  mixItem.rate || 0,
+                  mixItem.allocatedBudget || 0,
+                  0, // gst_percentage for mix items
+                  0, // gst_amount for mix items
+                  mixItem.allocatedBudget || 0,
+                  mixItemBatch || null,
+                  mixItemExpiry || null,
+                  false, // is_mix (these are components, not mix headers)
+                  currentMixId, // Same mix_id as parent
+                  mixHeaderId, // Reference to parent mix header
+                  null // No mix_item_data for components
+                ]
+              );
+            }
+            
+            currentMixId++; // Increment mix ID for next mix product
+          } else {
+            // Regular product (non-mix)
+            await connection.execute(
+              `INSERT INTO caterer_sale_items
+               (sale_id, product_id, product_name, quantity, unit, rate,
+                amount, gst_percentage, gst_amount, total_amount, batch_number, expiry_date,
+                is_mix, mix_id, parent_sale_item_id, mix_item_data)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                saleId,
+                item.product_id || null,
+                item.product_name || '',
+                item.quantity || 0,
+                item.unit || 'kg',
+                item.rate || 0,
+                amount || 0,
+                item.gst_percentage || item.gst || 0,
+                gstAmount || 0,
+                totalAmount || 0,
+                batchNumber || null,
+                expiryDate || null,
+                false, // is_mix
+                null, // mix_id
+                null, // parent_sale_item_id
+                null // mix_item_data
+              ]
+            );
+          }
         }
-        console.log(`✅ Inserted ${saleData.items.length} sale items`);
+        console.log(`✅ Inserted all sale items`);
       }
       
-      // 3. Insert other charges if any
+      // 3. Insert other charges
       if (saleData.other_charges && Array.isArray(saleData.other_charges) && saleData.other_charges.length > 0) {
         console.log(`📝 Inserting ${saleData.other_charges.length} other charges...`);
         for (const charge of saleData.other_charges) {
-          // Map charge type to database enum values
           let chargeType = charge.type || 'fixed';
           if (chargeType === 'discount') {
-            // Convert discount to either fixed or percentage based on value_type
             chargeType = charge.value_type === 'percentage' ? 'percentage' : 'fixed';
           }
           
@@ -193,9 +263,9 @@ router.post('/create',
              VALUES (?, ?, ?, ?)`,
             [
               saleId,
-              charge.name || '', // Use the correct property name from frontend
-              charge.value || 0, // Use value instead of charge_amount
-              chargeType // Use mapped charge type
+              charge.name || '',
+              charge.value || 0,
+              chargeType
             ]
           );
         }
@@ -218,7 +288,6 @@ router.post('/create',
       );
       console.log('✅ Payment record inserted');
       
-      // Commit transaction
       await connection.commit();
       console.log('✅ Transaction committed successfully');
       
@@ -235,13 +304,11 @@ router.post('/create',
       res.status(201).json(responseData);
       
     } catch (error) {
-      // Rollback on error
       if (connection) {
         await connection.rollback();
         console.error('🔄 Transaction rolled back');
       }
       
-      // Enhanced error logging
       console.error('❌ Error creating sale:', {
         message: error.message,
         code: error.code,
@@ -268,13 +335,14 @@ router.post('/create',
   }
 );
 
-
 // GET /api/caterer-sales/caterer/:caterer_id - Get all sales for a caterer
 router.get('/caterer/:caterer_id', logRequest, async (req, res) => {
   try {
     const [sales] = await db.pool.execute(
       `SELECT cs.*, 
-              (SELECT COUNT(*) FROM caterer_sale_items WHERE sale_id = cs.id) as items_count,
+              (SELECT COUNT(*) 
+               FROM caterer_sale_items 
+               WHERE sale_id = cs.id AND parent_sale_item_id IS NULL) as items_count,
               (SELECT SUM(payment_amount) FROM caterer_sale_payments WHERE sale_id = cs.id) as total_paid
        FROM caterer_sales cs
        WHERE cs.caterer_id = ?
@@ -297,7 +365,6 @@ router.get('/caterer/:caterer_id', logRequest, async (req, res) => {
   }
 });
 
-
 // GET /api/caterer-sales/:sale_id/details - Get sale details with items and payments
 router.get('/:sale_id/details', logRequest, async (req, res) => {
   try {
@@ -314,11 +381,45 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
       });
     }
     
-    // Get sale items
-    const [items] = await db.pool.execute(
-      'SELECT * FROM caterer_sale_items WHERE sale_id = ?',
+    // Get all sale items
+    const [allItems] = await db.pool.execute(
+      'SELECT * FROM caterer_sale_items WHERE sale_id = ? ORDER BY id',
       [req.params.sale_id]
     );
+    
+    // ONLY RETURN PARENT ITEMS (parent_sale_item_id IS NULL)
+    const parentItems = allItems.filter(item => item.parent_sale_item_id === null);
+    
+    const processedItems = parentItems.map(item => {
+      // If this is a mix header (is_mix = 1), find its children
+      if (item.is_mix === 1) {
+        const mixComponents = allItems.filter(childItem => 
+          childItem.parent_sale_item_id === item.id && 
+          childItem.mix_id === item.mix_id
+        );
+        
+        return {
+          ...item,
+          is_mix: true,
+          mix_items: mixComponents.map(comp => ({
+            product_id: comp.product_id,
+            product_name: comp.product_name,
+            quantity: parseFloat(comp.quantity),
+            unit: comp.unit,
+            rate: parseFloat(comp.rate),
+            allocatedBudget: parseFloat(comp.total_amount),
+            batch_number: comp.batch_number,
+            expiry_date: comp.expiry_date
+          }))
+        };
+      }
+      
+      // Regular item (not a mix)
+      return {
+        ...item,
+        is_mix: false
+      };
+    });
     
     // Get payments
     const [payments] = await db.pool.execute(
@@ -336,7 +437,7 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
       success: true,
       sale: {
         ...sales[0],
-        items,
+        items: processedItems,
         payments,
         other_charges: charges
       }
@@ -350,7 +451,6 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
     });
   }
 });
-
 
 // GET /api/caterer-sales/next-bill-number - Get next available bill number
 router.get('/next-bill-number', logRequest, async (req, res) => {
@@ -382,58 +482,11 @@ router.get('/next-bill-number', logRequest, async (req, res) => {
   }
 });
 
-
-// Test endpoint
-router.get('/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Caterer sales routes are working',
-    testData: {
-      caterer_id: "15",
-      bill_number: "#0001",
-      sell_date: "2025-10-28",
-      items: [
-        {
-          product_id: "11",
-          product_name: "rice",
-          quantity: 1,
-          unit: "bag",
-          rate: 420
-        }
-      ],
-      subtotal: 420,
-      total_gst: 0,
-      items_total: 420,
-      other_charges: [],
-      other_charges_total: 0,
-      grand_total: 420,
-      payment_date: "2025-10-28",
-      payment_method: "cash",
-      payment_option: "full",
-      payment_amount: 420
-    },
-    timestamp: new Date().toISOString()
-  });
-});
-
-
-// Health check
-router.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Caterer sales routes are healthy',
-    timestamp: new Date().toISOString(),
-    endpoint: '/api/caterer-sales'
-  });
-});
-
-
-// GET /api/caterer-sales - Get all caterer sales with complete details
+// GET /api/caterer-sales - Get all caterer sales with complete details including mix products
 router.get('/', logRequest, async (req, res) => {
   try {
     console.log('📊 Fetching all caterer sales with details...');
     
-    // Get all sales with caterer details
     const [sales] = await db.pool.execute(`
       SELECT cs.*,
              c.caterer_name,
@@ -445,7 +498,9 @@ router.get('/', logRequest, async (req, res) => {
              c.state,
              c.pincode,
              c.gst_number,
-             (SELECT COUNT(*) FROM caterer_sale_items WHERE sale_id = cs.id) as items_count,
+             (SELECT COUNT(*) 
+              FROM caterer_sale_items 
+              WHERE sale_id = cs.id AND parent_sale_item_id IS NULL) as items_count,
              (SELECT SUM(payment_amount) FROM caterer_sale_payments WHERE sale_id = cs.id) as total_paid
       FROM caterer_sales cs
       LEFT JOIN caterers c ON cs.caterer_id = c.id
@@ -454,14 +509,49 @@ router.get('/', logRequest, async (req, res) => {
     
     console.log(`✅ Found ${sales.length} sales, fetching related data...`);
     
-    // Fetch related data for each sale
     const salesWithDetails = await Promise.all(
       sales.map(async (sale) => {
-        // Get sale items
-        const [items] = await db.pool.execute(
-          'SELECT * FROM caterer_sale_items WHERE sale_id = ? ORDER BY id',
+        // Get all sale items
+        const [allItems] = await db.pool.execute(
+          `SELECT * FROM caterer_sale_items 
+           WHERE sale_id = ? 
+           ORDER BY id`,
           [sale.id]
         );
+        
+        // ONLY RETURN PARENT ITEMS (parent_sale_item_id IS NULL)
+        const parentItems = allItems.filter(item => item.parent_sale_item_id === null);
+        
+        const processedItems = parentItems.map(item => {
+          // If this is a mix header (is_mix = 1), find its children
+          if (item.is_mix === 1) {
+            const mixComponents = allItems.filter(childItem => 
+              childItem.parent_sale_item_id === item.id && 
+              childItem.mix_id === item.mix_id
+            );
+            
+            return {
+              ...item,
+              is_mix: true,
+              mix_items: mixComponents.map(comp => ({
+                product_id: comp.product_id,
+                product_name: comp.product_name,
+                quantity: parseFloat(comp.quantity),
+                unit: comp.unit,
+                rate: parseFloat(comp.rate),
+                allocatedBudget: parseFloat(comp.total_amount),
+                batch_number: comp.batch_number,
+                expiry_date: comp.expiry_date
+              }))
+            };
+          }
+          
+          // Regular item (not a mix)
+          return {
+            ...item,
+            is_mix: false
+          };
+        });
         
         // Get payments
         const [payments] = await db.pool.execute(
@@ -477,7 +567,7 @@ router.get('/', logRequest, async (req, res) => {
         
         return {
           ...sale,
-          items: items || [],
+          items: processedItems,
           payments: payments || [],
           other_charges: charges || []
         };
@@ -501,6 +591,24 @@ router.get('/', logRequest, async (req, res) => {
   }
 });
 
+// Test endpoint
+router.get('/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Caterer sales routes are working',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check
+router.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Caterer sales routes are healthy',
+    timestamp: new Date().toISOString(),
+    endpoint: '/api/caterer-sales'
+  });
+});
 
 // GET root endpoint
 router.get('/root', (req, res) => {
@@ -509,7 +617,7 @@ router.get('/root', (req, res) => {
     message: 'Caterer sales API is available',
     timestamp: new Date().toISOString(),
     availableEndpoints: [
-      'POST /create - Create new sale',
+      'POST /create - Create new sale with mix product support',
       'GET / - Get all caterer sales with complete details',
       'GET /caterer/:caterer_id - Get caterer sales',
       'GET /:sale_id/details - Get sale details',
@@ -519,7 +627,6 @@ router.get('/root', (req, res) => {
     ]
   });
 });
-
 
 // Error handler
 router.use('*', (req, res) => {
@@ -538,6 +645,5 @@ router.use('*', (req, res) => {
     ]
   });
 });
-
 
 module.exports = router;
