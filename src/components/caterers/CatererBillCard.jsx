@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   ChevronDownIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   CurrencyRupeeIcon,
   CalendarIcon,
@@ -18,147 +19,147 @@ import {
   EyeIcon,
   PhotoIcon,
   XMarkIcon,
-  CubeIcon
+  CubeIcon,
+  DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
 import PaymentDialog from '../suppliers/PaymentDialog';
 import { useToast } from '../../contexts/ToastContext';
 
+const rupee = (v) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(parseFloat(v || 0));
+
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const { showError } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedMix, setExpandedMix] = useState({}); // keyed by item.id
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [currentReceiptImage, setCurrentReceiptImage] = useState(null);
-  const [receiptTitle, setReceiptTitle] = useState('');
-  const [expandedMixItems, setExpandedMixItems] = useState({});
+  const [receipts, setReceipts] = useState([]);
+  const [currentReceiptIndex, setCurrentReceiptIndex] = useState(0);
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
+  // Derived totals
+  const grandTotal = useMemo(() => parseFloat(bill?.grand_total || 0), [bill]);
+  const totalPaid = useMemo(() => parseFloat(bill?.total_paid || 0), [bill]);
+  const pendingAmount = useMemo(() => Math.max(grandTotal - totalPaid, 0), [grandTotal, totalPaid]);
+  
+  // Debug logging
+  console.log('CatererBillCard Debug:', {
+    billNumber: bill?.bill_number,
+    grandTotal,
+    totalPaid,
+    pendingAmount,
+    paymentStatus: bill?.payment_status,
+    payments: bill?.payments,
+    receiptImages: bill?.payments?.flatMap(p => p?.receipt_images || [])
+  });
 
-  const formatTime = (timeString) => {
-    if (!timeString) return '';
-    return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-IN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
+  const formatDate = useCallback((d) => {
+    if (!d) return 'N/A';
+    return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }, []);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2
-    }).format(amount || 0);
-  };
+  const formatTime = useCallback((t) => {
+    if (!t) return '';
+    return new Date(`2000-01-01T${t}`).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  }, []);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'paid':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'partial':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'overdue':
-        return 'bg-red-100 text-red-800 border-red-200';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+  const getStatusPill = (status) => {
+    // Calculate actual status based on amounts if not explicitly set
+    let actualStatus = status;
+    if (!status || status === 'unknown') {
+      if (pendingAmount <= 0) {
+        actualStatus = 'paid';
+      } else if (totalPaid > 0) {
+        actualStatus = 'partial';
+      } else {
+        actualStatus = 'pending';
+      }
     }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'paid':
-        return <CheckCircleIcon className="h-4 w-4" />;
-      case 'pending':
-      case 'partial':
-      case 'overdue':
-      case 'cancelled':
-        return <ExclamationCircleIcon className="h-4 w-4" />;
-      default:
-        return <ExclamationCircleIcon className="h-4 w-4" />;
-    }
-  };
-
-  const getPaymentMethodIcon = (method) => {
-    switch (method) {
-      case 'cash':
-        return <BanknotesIcon className="h-4 w-4" />;
-      case 'upi':
-        return <DevicePhoneMobileIcon className="h-4 w-4" />;
-      case 'bank_transfer':
-        return <BuildingLibraryIcon className="h-4 w-4" />;
-      case 'cheque':
-        return <DocumentCheckIcon className="h-4 w-4" />;
-      case 'card':
-        return <CreditCardIcon className="h-4 w-4" />;
-      default:
-        return <EllipsisHorizontalIcon className="h-4 w-4" />;
-    }
-  };
-
-  const getPaymentMethodLabel = (method) => {
-    const labels = {
-      cash: 'Cash',
-      upi: 'UPI',
-      bank_transfer: 'Bank Transfer',
-      cheque: 'Cheque',
-      card: 'Card',
-      other: 'Other'
+    
+    const map = {
+      paid: 'bg-green-100 text-green-800 border-green-200',
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      partial: 'bg-blue-100 text-blue-800 border-blue-200',
+      overdue: 'bg-red-100 text-red-800 border-red-200',
+      cancelled: 'bg-red-100 text-red-800 border-red-200'
     };
-    return labels[method] || method;
+    const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
+    const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+    
+    console.log('Status calculation:', {
+      originalStatus: status,
+      calculatedStatus: actualStatus,
+      grandTotal,
+      totalPaid,
+      pendingAmount,
+      isFullyPaid: pendingAmount <= 0
+    });
+    
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+        <Icon className="h-4 w-4" />
+        <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
+      </span>
+    );
   };
 
-  const handleCollectPayment = () => {
-    setShowPaymentDialog(true);
+  const getPaymentIcon = (method) => {
+    switch (method) {
+      case 'cash': return <BanknotesIcon className="h-4 w-4" />;
+      case 'upi': return <DevicePhoneMobileIcon className="h-4 w-4" />;
+      case 'bank_transfer': return <BuildingLibraryIcon className="h-4 w-4" />;
+      case 'cheque': return <DocumentCheckIcon className="h-4 w-4" />;
+      case 'card': return <CreditCardIcon className="h-4 w-4" />;
+      default: return <EllipsisHorizontalIcon className="h-4 w-4" />;
+    }
   };
+
+  const isMixProduct = (item) => {
+    // Treat as mix if flagged and has contents
+    const hasFlag = item?.is_mix === true || item?.is_mix === 1;
+    const hasChildren = Array.isArray(item?.mix_items) && item?.mix_items.length > 0;
+    return hasFlag && hasChildren;
+  };
+
+  const toggleBill = () => {
+    if (isExpanded) setExpandedMix({}); // reset all mix states when collapsing
+    setIsExpanded((p) => !p);
+  };
+
+  const toggleMix = (e, key) => {
+    e?.stopPropagation();
+    setExpandedMix((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleCollectPayment = () => setShowPaymentDialog(true);
 
   const handlePaymentSuccess = () => {
     setShowPaymentDialog(false);
-    onPaymentUpdate();
+    onPaymentUpdate?.();
   };
 
-  const handleViewReceipt = (imageUrl, title) => {
-    setCurrentReceiptImage(imageUrl);
-    setReceiptTitle(title);
+  const openReceipts = (paymentReceipts) => {
+    if (Array.isArray(paymentReceipts) && paymentReceipts.length > 0) {
+      setReceipts(paymentReceipts);
+      setCurrentReceiptIndex(0);
+      setShowReceiptModal(true);
+    }
+  };
+
+  const openSingleReceipt = (url, title) => {
+    setReceipts([{ url, title }]);
+    setCurrentReceiptIndex(0);
     setShowReceiptModal(true);
   };
 
-  const closeReceiptModal = () => {
-    setShowReceiptModal(false);
-    setCurrentReceiptImage(null);
-    setReceiptTitle('');
-  };
-
-  const toggleMixItem = (e, index) => {
-    e.stopPropagation(); // Prevent parent card collapse
-    setExpandedMixItems(prev => ({
-      ...prev,
-      [index]: !prev[index]
-    }));
-  };
-
-  // Check if an item is a mix product
-  const isMixProduct = (item) => {
-    if (item.is_mix === true || item.is_mix === 1) {
-      return true;
+  const copyBillNumber = async () => {
+    try {
+      await navigator.clipboard.writeText(bill?.bill_number || '');
+    } catch {
+      showError?.('Failed to copy bill number');
     }
-    if (item.mix_items && Array.isArray(item.mix_items) && item.mix_items.length > 0) {
-      return true;
-    }
-    return false;
   };
 
-  // Safety check for bill data
   if (!bill) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -167,385 +168,409 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     );
   }
 
-  // Calculate pending amount safely
-  const grandTotal = parseFloat(bill.grand_total || 0);
-  const totalPaid = parseFloat(bill.total_paid || 0);
-  const pendingAmount = grandTotal - totalPaid;
-
   return (
     <>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {/* Header - Always Visible */}
-        <div 
-          className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
-          onClick={() => setIsExpanded(!isExpanded)}
+      <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+        {/* Header */}
+        <button
+          type="button"
+          onClick={toggleBill}
+          className="w-full text-left p-5 hover:bg-gray-50 transition-colors"
+          aria-expanded={isExpanded}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button className="text-gray-400 hover:text-gray-600">
-                {isExpanded ? (
-                  <ChevronDownIcon className="h-5 w-5" />
-                ) : (
-                  <ChevronRightIcon className="h-5 w-5" />
-                )}
-              </button>
-              
-              <div>
-                <div className="flex items-center space-x-3">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {bill.bill_number || 'N/A'}
-                  </h3>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(bill.payment_status)}`}>
-                    {getStatusIcon(bill.payment_status)}
-                    <span className="ml-1 capitalize">
-                      {bill.payment_status === 'paid' ? 'Paid' : 
-                       bill.payment_status === 'pending' ? 'Pending' :
-                       bill.payment_status === 'partial' ? 'Partial' :
-                       bill.payment_status === 'overdue' ? 'Overdue' : bill.payment_status}
-                    </span>
-                  </span>
+            <div className="flex items-center gap-4">
+              {isExpanded ? (
+                <ChevronDownIcon className="h-5 w-5 text-gray-500" />
+              ) : (
+                <ChevronRightIcon className="h-5 w-5 text-gray-500" />
+              )}
+
+              <div className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-900">{bill?.bill_number || 'N/A'}</h3>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); copyBillNumber(); }}
+                      className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                      title="Copy bill number"
+                    >
+                      <DocumentDuplicateIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {getStatusPill(bill?.payment_status)}
                 </div>
-                <div className="flex items-center space-x-4 mt-1 text-sm text-gray-600">
+                <div className="flex items-center gap-4 text-sm text-gray-600">
                   <span className="flex items-center">
                     <UserIcon className="h-4 w-4 mr-1" />
-                    {bill.caterer_name || 'Unknown Caterer'}
+                    {bill?.caterer_name || 'Unknown Caterer'}
                   </span>
                   <span className="flex items-center">
                     <CalendarIcon className="h-4 w-4 mr-1" />
-                    {formatDate(bill.sell_date)}
+                    {formatDate(bill?.sell_date)}
+                  </span>
+                  <span className="hidden md:flex items-center">
+                    <DocumentTextIcon className="h-4 w-4 mr-1" />
+                    {bill?.items_count || 0} items
                   </span>
                 </div>
               </div>
             </div>
 
             <div className="text-right">
-              <div className="flex items-center justify-end space-x-2 mb-1">
-                <div className="text-lg font-semibold text-gray-900">
-                  {formatCurrency(grandTotal)}
-                </div>
-              </div>
-              {bill.payment_status !== 'paid' && pendingAmount > 0 && (
-                <div className="text-sm text-red-600">
-                  Pending: {formatCurrency(pendingAmount)}
-                </div>
+              <div className="text-lg font-semibold text-gray-900">{rupee(grandTotal)}</div>
+              {bill?.payment_status !== 'paid' && pendingAmount > 0 && (
+                <div className="text-sm text-red-600">Pending: {rupee(pendingAmount)}</div>
               )}
             </div>
           </div>
-        </div>
+        </button>
 
-        {/* Expanded Content */}
+        {/* Body */}
         {isExpanded && (
-          <div className="border-t border-gray-200">
-            <div className="p-6 space-y-6">
-              {/* Sale Information */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                  <DocumentTextIcon className="h-4 w-4 mr-2" />
-                  Sale Information
-                </h4>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="font-medium text-gray-700">Bill Number:</span>
-                      <span className="ml-2 text-gray-900">{bill.bill_number || 'N/A'}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Sale Date:</span>
-                      <span className="ml-2 text-gray-900">{formatDate(bill.sell_date)}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Payment Status:</span>
-                      <span className="ml-2 text-gray-900 capitalize">{bill.payment_status || 'Unknown'}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Items Count:</span>
-                      <span className="ml-2 text-gray-900">{bill.items_count || 0}</span>
-                    </div>
+          <div className="border-t border-gray-200 p-5 space-y-6">
+            {/* Sale Information */}
+            <section>
+              <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                <DocumentTextIcon className="h-4 w-4 mr-2" />
+                Sale Information
+              </h4>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div className="flex">
+                    <dt className="text-gray-600 w-36">Bill Number</dt>
+                    <dd className="text-gray-900">{bill?.bill_number || 'N/A'}</dd>
                   </div>
-                  {bill.notes && (
-                    <div className="mt-3">
-                      <span className="font-medium text-gray-700">Notes:</span>
-                      <p className="mt-1 text-gray-600 text-sm">{bill.notes}</p>
-                    </div>
-                  )}
-                </div>
+                  <div className="flex">
+                    <dt className="text-gray-600 w-36">Sale Date</dt>
+                    <dd className="text-gray-900">{formatDate(bill?.sell_date)}</dd>
+                  </div>
+                  <div className="flex">
+                    <dt className="text-gray-600 w-36">Payment</dt>
+                    <dd className="text-gray-900 capitalize">{bill?.payment_status || 'unknown'}</dd>
+                  </div>
+                  <div className="flex">
+                    <dt className="text-gray-600 w-36">Items Count</dt>
+                    <dd className="text-gray-900">{bill?.items_count || 0}</dd>
+                  </div>
+                </dl>
+                {bill?.notes && (
+                  <p className="mt-3 text-sm text-gray-700">{bill?.notes}</p>
+                )}
               </div>
+            </section>
 
-              {/* Sale Items */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                  <DocumentTextIcon className="h-4 w-4 mr-2" />
-                  Sale Items
-                </h4>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="space-y-3">
-                    {(bill.items && Array.isArray(bill.items) && bill.items.length > 0) ? bill.items.map((item, index) => (
-                      <div key={index} className="border-b border-gray-200 last:border-b-0 pb-3 last:pb-0">
-                        {/* Main Item Row - Wrapped in div to prevent event bubbling */}
-                        <div 
-                          className="flex justify-between items-start text-sm"
-                          onClick={(e) => {
-                            // Only toggle if it's a mix product
-                            if (isMixProduct(item)) {
-                              toggleMixItem(e, index);
-                            }
-                          }}
-                        >
-                          <div className="flex-1 flex items-start">
-                            {/* Expand/Collapse button for mix products */}
-                            <div className="flex items-center min-w-[24px] pt-0.5">
-                              {isMixProduct(item) ? (
+            {/* Items */}
+            <section>
+              <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                <DocumentTextIcon className="h-4 w-4 mr-2" />
+                Sale Items
+              </h4>
+
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                {Array.isArray(bill?.items) && bill.items.length > 0 ? (
+                  bill.items.map((item, idx) => {
+                    const key = item?.id ?? `item-${idx}`;
+                    const mix = isMixProduct(item);
+                    const open = !!expandedMix[key];
+
+                    return (
+                      <div key={key} className="rounded-md bg-white border border-gray-200 p-3">
+                        <div className="flex justify-between">
+                          <div className="flex-1 flex">
+                            <div className="w-5 pt-1">
+                              {mix && (
                                 <button
-                                  onClick={(e) => toggleMixItem(e, index)}
-                                  className="text-orange-500 hover:text-orange-700 transition-colors cursor-pointer"
-                                  title="Click to view mix contents"
+                                  type="button"
+                                  onClick={(e) => toggleMix(e, key)}
+                                  className="text-orange-600 hover:text-orange-700"
+                                  aria-expanded={open}
+                                  aria-controls={`mix-${key}`}
+                                  title="Toggle mix contents"
                                 >
-                                  {expandedMixItems[index] ? (
-                                    <ChevronDownIcon className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronRightIcon className="h-4 w-4" />
-                                  )}
+                                  {open ? <ChevronDownIcon className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
                                 </button>
-                              ) : (
-                                <div className="w-4"></div>
                               )}
                             </div>
 
-                            <div className="ml-2 flex-1">
-                              <div className="flex items-center flex-wrap gap-2">
-                                <span className="font-medium text-gray-900">
-                                  {item.product_name || 'Unknown Product'}
-                                </span>
-                                {isMixProduct(item) && (
-                                  <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium">
+                            <div className="ml-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900">{item?.product_name || 'Unknown Product'}</span>
+                                {mix && (
+                                  <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">
                                     <CubeIcon className="h-3 w-3 mr-1" />
-                                    Mix ({item.mix_items?.length || 0})
+                                    Mix ({item?.mix_items?.length || 0})
                                   </span>
                                 )}
                               </div>
                               <div className="text-xs text-gray-600 mt-0.5">
-                                {item.quantity || 0} {item.unit || 'unit'} × ₹{parseFloat(item.rate || 0).toFixed(2)}
+                                {parseFloat(item?.quantity || 0).toFixed(3)} {item?.unit || 'unit'} × {rupee(item?.rate || 0)}
                               </div>
                             </div>
                           </div>
 
-                          <div className="text-right ml-4">
-                            <div className="font-semibold text-gray-900">
-                              ₹{parseFloat(item.total_amount || 0).toFixed(2)}
-                            </div>
-                            {parseFloat(item.gst_amount || 0) > 0 && (
-                              <div className="text-xs text-gray-500 mt-0.5">
-                                GST: ₹{parseFloat(item.gst_amount || 0).toFixed(2)}
-                              </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-gray-900">{rupee(item?.total_amount || 0)}</div>
+                            {parseFloat(item?.gst_amount || 0) > 0 && (
+                              <div className="text-xs text-gray-500">GST: {rupee(item?.gst_amount || 0)}</div>
                             )}
                           </div>
                         </div>
 
-                        {/* Expanded Mix Items */}
-                        {isMixProduct(item) && expandedMixItems[index] && (
-                          <div 
-                            className="ml-6 mt-3 bg-orange-50 rounded-lg p-3 border border-orange-200"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="text-xs font-semibold text-orange-900 mb-2 flex items-center">
+                        {mix && open && (
+                          <div id={`mix-${key}`} className="mt-3 rounded-md border border-orange-200 bg-orange-50">
+                            <div className="px-3 py-2 border-b border-orange-200 text-xs font-semibold text-orange-900 flex items-center">
                               <CubeIcon className="h-3.5 w-3.5 mr-1.5" />
-                              Mix Contents ({item.mix_items?.length || 0} items)
+                              Mix Contents ({item?.mix_items?.length || 0})
                             </div>
-                            <div className="space-y-2">
-                              {item.mix_items && item.mix_items.length > 0 ? (
-                                item.mix_items.map((mixItem, mixIndex) => (
-                                  <div 
-                                    key={mixIndex} 
-                                    className="flex justify-between items-start text-xs bg-white rounded p-2.5 border border-orange-100"
-                                  >
-                                    <div className="flex-1">
-                                      <div className="font-medium text-gray-900">
-                                        {mixItem.product_name || 'Unknown Product'}
-                                      </div>
-                                      <div className="text-orange-700 mt-0.5 space-x-2">
-                                        <span>{parseFloat(mixItem.quantity || 0).toFixed(3)} {mixItem.unit || 'unit'}</span>
-                                        {mixItem.batch_number && (
-                                          <span className="text-orange-600">
-                                            • Batch: {mixItem.batch_number}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="text-right ml-3">
-                                      <div className="font-semibold text-orange-700">
-                                        ₹{parseFloat(mixItem.allocatedBudget || 0).toFixed(2)}
-                                      </div>
-                                      <div className="text-[10px] text-gray-500 mt-0.5">
-                                        @ ₹{parseFloat(mixItem.rate || 0).toFixed(2)}/{mixItem.unit || 'unit'}
-                                      </div>
+
+                            <div className="divide-y divide-orange-200">
+                              {item?.mix_items?.map((m, mIdx) => (
+                                <div key={`mix-${key}-${mIdx}`} className="px-3 py-2 flex items-start justify-between text-xs">
+                                  <div className="pr-2">
+                                    <div className="font-medium text-gray-900">{m?.product_name || 'Unknown'}</div>
+                                    <div className="text-orange-700 mt-0.5">
+                                      {parseFloat(m?.quantity || 0).toFixed(3)} {m?.unit || 'unit'}
+                                      {m?.batch_number && <span className="ml-2 text-orange-600">• Batch: {m?.batch_number}</span>}
                                     </div>
                                   </div>
-                                ))
-                              ) : (
-                                <div className="text-xs text-orange-600 text-center py-3 bg-white rounded">
-                                  No mix items available
+                                  <div className="text-right">
+                                    <div className="font-semibold text-orange-700">{rupee(m?.allocatedBudget || 0)}</div>
+                                    <div className="text-[10px] text-gray-500">
+                                      @ {rupee(m?.rate || 0)}/{m?.unit || 'unit'}
+                                    </div>
+                                  </div>
                                 </div>
-                              )}
+                              ))}
                             </div>
-                            {item.batch_number && (
-                              <div className="mt-2 pt-2 border-t border-orange-200 text-xs text-orange-700">
-                                <span className="font-medium">Mix Batch:</span> {item.batch_number}
+
+                            {item?.batch_number && (
+                              <div className="px-3 py-2 border-t border-orange-200 text-xs text-orange-700">
+                                <span className="font-medium">Mix Batch:</span> {item?.batch_number}
                               </div>
                             )}
                           </div>
                         )}
                       </div>
-                    )) : (
-                      <div className="text-sm text-gray-500 text-center py-4">
-                        No items found
-                      </div>
-                    )}
+                    );
+                  })
+                ) : (
+                  <div className="text-sm text-gray-500 text-center py-6">No items found</div>
+                )}
+
+                {/* Summary */}
+                <div className="mt-3 border-t border-gray-200 pt-3 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Items Total:</span>
+                    <span>{rupee(bill?.items_total || 0)}</span>
                   </div>
-                  
-                  {/* Bill Summary */}
-                  <div className="border-t border-gray-200 mt-4 pt-4 space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>Items Total:</span>
-                      <span>₹{parseFloat(bill.items_total || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>GST:</span>
-                      <span>₹{parseFloat(bill.total_gst || 0).toFixed(2)}</span>
-                    </div>
-                    {/* Other Charges */}
-                    {(bill.other_charges && Array.isArray(bill.other_charges) && bill.other_charges.length > 0) ? (
-                      <>
-                        {bill.other_charges.map((charge, index) => (
-                          <div key={index} className="flex justify-between text-sm">
-                            <span>{charge.charge_name || 'Charge'}:</span>
-                            <span>
-                              {charge.charge_type === 'percentage'
-                                ? `${charge.charge_amount}% (₹${parseFloat((bill.items_total || 0) * charge.charge_amount / 100).toFixed(2)})`
-                                : `₹${parseFloat(charge.charge_amount || 0).toFixed(2)}`
-                              }
-                            </span>
-                          </div>
-                        ))}
-                        <div className="flex justify-between text-sm font-medium">
-                          <span>Other Charges Total:</span>
-                          <span>₹{parseFloat(bill.other_charges_total || 0).toFixed(2)}</span>
+                  <div className="flex justify-between text-sm">
+                    <span>GST:</span>
+                    <span>{rupee(bill?.total_gst || 0)}</span>
+                  </div>
+
+                  {Array.isArray(bill?.other_charges) && bill?.other_charges.length > 0 ? (
+                    <>
+                      {bill.other_charges.map((c, i) => (
+                        <div key={`oc-${i}`} className="flex justify-between text-sm">
+                          <span>{c?.charge_name || 'Charge'}:</span>
+                          <span>
+                            {c?.charge_type === 'percentage'
+                              ? `${parseFloat(c?.charge_amount || 0).toFixed(2)}% (${rupee(((bill?.items_total || 0) * (c?.charge_amount || 0)) / 100)})`
+                              : rupee(c?.charge_amount || 0)}
+                          </span>
                         </div>
-                      </>
-                    ) : (
-                      <div className="flex justify-between text-sm text-gray-500">
-                        <span>Other Charges:</span>
-                        <span>₹0.00</span>
+                      ))}
+                      <div className="flex justify-between text-sm font-medium">
+                        <span>Other Charges Total:</span>
+                        <span>{rupee(bill?.other_charges_total || 0)}</span>
                       </div>
-                    )}
-                    <div className="flex justify-between text-sm font-semibold border-t border-gray-300 pt-1">
-                      <span>Grand Total:</span>
-                      <span>₹{parseFloat(bill.grand_total || 0).toFixed(2)}</span>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Other Charges:</span>
+                      <span>{rupee(0)}</span>
                     </div>
+                  )}
+
+                  <div className="flex justify-between text-sm font-semibold border-t border-gray-300 pt-2">
+                    <span>Grand Total:</span>
+                    <span>{rupee(bill?.grand_total || 0)}</span>
                   </div>
                 </div>
               </div>
+            </section>
 
-              {/* Payment Information */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                  <CurrencyRupeeIcon className="h-4 w-4 mr-2" />
-                  Payment Information
-                </h4>
-                
-                {bill.payment_status === 'pending' && (!bill.payments || bill.payments.length === 0) ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-yellow-800">
-                          No payments recorded yet
-                        </p>
-                        <p className="text-xs text-yellow-600 mt-1">
-                          Created on {formatDate(bill.created_at)}
-                        </p>
-                      </div>
+            {/* Payments */}
+            <section>
+              <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                <CurrencyRupeeIcon className="h-4 w-4 mr-2" />
+                Payment Information
+              </h4>
+
+              {bill?.payment_status === 'pending' && (!bill?.payments || bill.payments.length === 0) ? (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-yellow-800">No payments recorded yet</p>
+                    <p className="text-xs text-yellow-600 mt-1">Created on {formatDate(bill?.created_at)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowPaymentDialog(true); }}
+                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  >
+                    Collect Payment
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Array.isArray(bill?.payments) && bill.payments.length > 0 ? (
+                    bill.payments.map((p, index) => {
+                      console.log(`Payment ${index}:`, {
+                        id: p?.id,
+                        payment_method: p?.payment_method,
+                        payment_amount: p?.payment_amount,
+                        receipt_image: p?.receipt_image,
+                        receipt_images: p?.receipt_images,
+                        hasSingleReceipt: !!p?.receipt_image,
+                        hasMultipleReceipts: Array.isArray(p?.receipt_images) && p.receipt_images.length > 0
+                      });
+                      
+                      return (
+                        <div key={p?.id} className="bg-gray-50 rounded-lg p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center text-gray-600">
+                                {getPaymentIcon(p?.payment_method)}
+                                <span className="ml-2 text-sm font-medium capitalize">
+                                  {p?.payment_method || 'other'}
+                                </span>
+                              </div>
+                              <div className="text-lg font-semibold text-green-600">
+                                {rupee(p?.payment_amount || 0)}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right text-sm text-gray-600">
+                                <div className="flex items-center">
+                                  <CalendarIcon className="h-4 w-4 mr-1" />
+                                  {formatDate(p?.payment_date)}
+                                </div>
+                                {p?.payment_time && (
+                                  <div className="flex items-center mt-1">
+                                    <ClockIcon className="h-4 w-4 mr-1" />
+                                    {formatTime(p?.payment_time)}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {/* Check for various receipt field names */}
+                                {(() => {
+                                  const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl;
+                                  const hasMultipleReceipts = Array.isArray(p?.receipt_images) && p.receipt_images.length > 0 ||
+                                                            Array.isArray(p?.receipts) && p.receipts.length > 0;
+                                  
+                                  console.log(`Payment ${p?.id} receipt check:`, {
+                                    hasSingleReceipt,
+                                    hasMultipleReceipts,
+                                    receipt_image: p?.receipt_image,
+                                    receipt: p?.receipt,
+                                    receiptUrl: p?.receiptUrl,
+                                    receipt_images: p?.receipt_images,
+                                    receipts: p?.receipts
+                                  });
+                                  
+                                  return (
+                                    <>
+                                      {/* Single receipt button */}
+                                      {hasSingleReceipt && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const receiptUrl = p.receipt_image || p.receipt || p.receiptUrl;
+                                            openSingleReceipt(
+                                              `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/caterer-sales/receipts/${receiptUrl}`,
+                                              `Payment Receipt - ${rupee(p?.payment_amount || 0)}`
+                                            );
+                                          }}
+                                          className="p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                                          title="View Payment Receipt"
+                                        >
+                                          <EyeIcon className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                      
+                                      {/* Multiple receipts button */}
+                                      {hasMultipleReceipts && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const receiptArray = p.receipt_images || p.receipts;
+                                            const receipts = receiptArray.map((receipt, receiptIndex) => ({
+                                              url: `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/caterer-sales/receipts/${receipt}`,
+                                              title: `Payment Receipt ${receiptIndex + 1} - ${rupee(p?.payment_amount || 0)}`
+                                            }));
+                                            openReceipts(receipts);
+                                          }}
+                                          className="p-1.5 text-blue-500 hover:text-blue-700 rounded"
+                                          title={`View all ${receiptArray.length} receipts`}
+                                        >
+                                          <DocumentDuplicateIcon className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                      
+                                      {/* Debug info for missing receipts */}
+                                      {!hasSingleReceipt && !hasMultipleReceipts && (
+                                        <div className="text-xs text-gray-400" title="No receipt found">
+                                          No receipt
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </div>
+
+                          {p?.notes && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              <span className="font-medium">Note:</span> {p?.notes}
+                            </div>
+                          )}
+                          
+                          {/* Show receipt count if multiple receipts */}
+                          {Array.isArray(p?.receipt_images) && p.receipt_images.length > 1 && (
+                            <div className="mt-2 text-xs text-blue-600 flex items-center">
+                              <DocumentDuplicateIcon className="h-3 w-3 mr-1" />
+                              {p.receipt_images.length} receipt(s) available
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-sm text-gray-500 text-center py-4">No payment records found</div>
+                  )}
+
+                  {bill?.payment_status !== 'paid' && pendingAmount > 0 && (
+                    <div className="flex justify-end">
                       <button
-                        onClick={handleCollectPayment}
-                        className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShowPaymentDialog(true); }}
+                        className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium"
                       >
                         Collect Payment
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {(bill.payments && Array.isArray(bill.payments) && bill.payments.length > 0) ? bill.payments.map((payment) => (
-                      <div key={payment.id} className="bg-gray-50 rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <div className="flex items-center text-gray-600">
-                              {getPaymentMethodIcon(payment.payment_method)}
-                              <span className="ml-2 text-sm font-medium">
-                                {getPaymentMethodLabel(payment.payment_method)}
-                              </span>
-                            </div>
-                            <div className="text-lg font-semibold text-green-600">
-                              {formatCurrency(parseFloat(payment.payment_amount || 0))}
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <div className="text-right text-sm text-gray-600">
-                              <div className="flex items-center">
-                                <CalendarIcon className="h-4 w-4 mr-1" />
-                                {formatDate(payment.payment_date)}
-                              </div>
-                              {payment.payment_time && (
-                                <div className="flex items-center mt-1">
-                                  <ClockIcon className="h-4 w-4 mr-1" />
-                                  {formatTime(payment.payment_time)}
-                                </div>
-                              )}
-                            </div>
-                            {payment.receipt_image && (
-                              <button
-                                onClick={() => handleViewReceipt(
-                                  `http://localhost:5000/api/caterer-sales/receipts/${payment.receipt_image}`,
-                                  `Payment Receipt - ${formatCurrency(parseFloat(payment.payment_amount || 0))}`
-                                )}
-                                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                                title="View Payment Receipt"
-                              >
-                                <EyeIcon className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {payment.notes && (
-                          <div className="mt-2 text-sm text-gray-600">
-                            <span className="font-medium">Note:</span> {payment.notes}
-                          </div>
-                        )}
-                        {payment.receipt_image && (
-                          <div className="mt-2 text-xs text-gray-500 flex items-center">
-                            <PhotoIcon className="h-3 w-3 mr-1" />
-                            <span>Receipt attached</span>
-                          </div>
-                        )}
-                      </div>
-                    )) : (
-                      <div className="text-sm text-gray-500 text-center py-4">
-                        No payment records found
-                      </div>
-                    )}
-
-                    {bill.payment_status !== 'paid' && pendingAmount > 0 && (
-                      <div className="flex justify-end">
-                        <button
-                          onClick={handleCollectPayment}
-                          className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                        >
-                          Collect Payment
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+                  )}
+                </div>
+              )}
+            </section>
           </div>
         )}
       </div>
@@ -559,39 +584,78 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       />
 
       {/* Receipt Modal */}
-      {showReceiptModal && (
-        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full overflow-hidden">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+      {showReceiptModal && receipts.length > 0 && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowReceiptModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
                 <PhotoIcon className="h-5 w-5 mr-2" />
-                {receiptTitle}
+                {receipts[currentReceiptIndex]?.title || 'Payment Receipt'}
               </h2>
-              <button
-                onClick={closeReceiptModal}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <XMarkIcon className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {receipts.length > 1 && (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentReceiptIndex(prev => (prev > 0 ? prev - 1 : receipts.length - 1));
+                      }}
+                      className="p-1.5 text-gray-500 hover:text-gray-700 rounded disabled:opacity-50"
+                      disabled={receipts.length <= 1}
+                      title="Previous receipt"
+                    >
+                      <ChevronLeftIcon className="h-5 w-5" />
+                    </button>
+                    <span className="text-sm text-gray-600">
+                      {currentReceiptIndex + 1} / {receipts.length}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentReceiptIndex(prev => (prev < receipts.length - 1 ? prev + 1 : 0));
+                      }}
+                      className="p-1.5 text-gray-500 hover:text-gray-700 rounded disabled:opacity-50"
+                      disabled={receipts.length <= 1}
+                      title="Next receipt"
+                    >
+                      <ChevronRightIcon className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setShowReceiptModal(false)}
+                  className="text-gray-500 hover:text-gray-700 rounded p-1"
+                  title="Close"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 overflow-auto max-h-[calc(90vh-120px)]">
-              {currentReceiptImage ? (
-                <div className="flex justify-center">
+            <div className="p-4 max-h-[80vh] overflow-auto">
+              {receipts[currentReceiptIndex]?.url ? (
+                <div className="space-y-4">
                   <img
-                    src={currentReceiptImage}
-                    alt={receiptTitle}
-                    className="max-w-full h-auto rounded-lg shadow-sm border border-gray-200"
+                    src={receipts[currentReceiptIndex].url}
+                    alt={receipts[currentReceiptIndex]?.title || 'Payment Receipt'}
+                    className="mx-auto max-h-[72vh] rounded border border-gray-200 object-contain"
                     onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.nextSibling.style.display = 'block';
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.parentElement.innerHTML = `
+                        <div class="text-center py-12">
+                          <PhotoIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <p class="text-gray-600">Receipt image could not be loaded</p>
+                        </div>
+                      `;
                     }}
                   />
-                  <div className="hidden text-center py-12">
-                    <PhotoIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">Receipt image could not be loaded</p>
-                    <p className="text-sm text-gray-500 mt-1">The image may have been moved or deleted</p>
-                  </div>
+                  {receipts.length > 1 && (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600">
+                        Receipt {currentReceiptIndex + 1} of {receipts.length}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-12">
