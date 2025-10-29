@@ -1533,16 +1533,18 @@ const CatererSellComponent = () => {
               // Add mix items to the sell form with batch information
               const mixName = selectedMixData.mixName;
               const newItems = selectedMixData.mixProducts.map((product, index) => {
-                // Calculate rate properly - should be the original product price, not allocatedBudget/quantity
-                const originalProduct = products.find(p => p.id === product.id);
-                const rate = parseFloat(originalProduct ? (originalProduct.caterer_price || originalProduct.price || '0') : '0');
+                // For mix items, we need to set the rate so that quantity * rate = allocatedBudget
+                // This ensures the server calculates the correct amount and total_amount
+                const calculatedRate = product.allocatedBudget > 0 && product.calculatedQuantity > 0
+                  ? product.allocatedBudget / product.calculatedQuantity
+                  : 0;
                 
                 return {
                   product_id: product.id,
                   product_name: product.name,
                   quantity: product.calculatedQuantity,
                   unit: product.unit || 'kg',
-                  rate: rate.toFixed(2),
+                  rate: calculatedRate.toFixed(4), // Use 4 decimal places for precision
                   gst: '0', // Mix items typically don't have GST
                   subtotal: parseFloat(product.allocatedBudget || 0).toFixed(2),
                   gst_amount: '0',
@@ -1561,7 +1563,7 @@ const CatererSellComponent = () => {
               // Add a header item for the mix
               const mixHeaderItem = {
                 product_id: `mix-${Date.now()}`,
-                product_name: mixName,
+                product_name: mixName || 'Custom Mix',
                 quantity: 1,
                 unit: 'mix',
                 rate: parseFloat(mixProductSelectionDialog.totalBudget || 0),
@@ -1570,7 +1572,7 @@ const CatererSellComponent = () => {
                 gst_amount: '0',
                 total: parseFloat(mixProductSelectionDialog.totalBudget || 0),
                 isMix: true,
-                mixName: mixName,
+                mixName: mixName || 'Custom Mix',
                 isMixHeader: true,
                 // Add calculated properties to match the structure expected by calculateTotals
                 calculatedRate: parseFloat(mixProductSelectionDialog.totalBudget || 0)

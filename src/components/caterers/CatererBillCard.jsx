@@ -20,21 +20,28 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import PaymentDialog from '../suppliers/PaymentDialog';
+import { useToast } from '../../contexts/ToastContext';
+
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
+  const { showError } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentReceiptImage, setCurrentReceiptImage] = useState(null);
   const [receiptTitle, setReceiptTitle] = useState('');
+  const [expandedMixItems, setExpandedMixItems] = useState({});
+
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'short',
       year: 'numeric'
     });
   };
+
 
   const formatTime = (timeString) => {
     if (!timeString) return '';
@@ -45,13 +52,15 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     });
   };
 
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       minimumFractionDigits: 2
-    }).format(amount);
+    }).format(amount || 0);
   };
+
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -70,22 +79,21 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
+
   const getStatusIcon = (status) => {
     switch (status) {
       case 'paid':
         return <CheckCircleIcon className="h-4 w-4" />;
       case 'pending':
-        return <ExclamationCircleIcon className="h-4 w-4" />;
       case 'partial':
-        return <ExclamationCircleIcon className="h-4 w-4" />;
       case 'overdue':
-        return <ExclamationCircleIcon className="h-4 w-4" />;
       case 'cancelled':
         return <ExclamationCircleIcon className="h-4 w-4" />;
       default:
         return <ExclamationCircleIcon className="h-4 w-4" />;
     }
   };
+
 
   const getPaymentMethodIcon = (method) => {
     switch (method) {
@@ -104,6 +112,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
+
   const getPaymentMethodLabel = (method) => {
     const labels = {
       cash: 'Cash',
@@ -116,14 +125,17 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     return labels[method] || method;
   };
 
+
   const handleCollectPayment = () => {
     setShowPaymentDialog(true);
   };
+
 
   const handlePaymentSuccess = () => {
     setShowPaymentDialog(false);
     onPaymentUpdate();
   };
+
 
   const handleViewReceipt = (imageUrl, title) => {
     setCurrentReceiptImage(imageUrl);
@@ -131,11 +143,25 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     setShowReceiptModal(true);
   };
 
+
   const closeReceiptModal = () => {
     setShowReceiptModal(false);
     setCurrentReceiptImage(null);
     setReceiptTitle('');
   };
+
+  const toggleMixItem = (index) => {
+    setExpandedMixItems(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
+  };
+
+  // Check if an item is a mix product
+  const isMixProduct = (item) => {
+    return item.isMixHeader || (item.isMix && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0);
+  };
+
 
   // Safety check for bill data
   if (!bill) {
@@ -145,6 +171,12 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       </div>
     );
   }
+
+  // Calculate pending amount safely
+  const grandTotal = parseFloat(bill.grand_total || 0);
+  const totalPaid = parseFloat(bill.total_paid || 0);
+  const pendingAmount = grandTotal - totalPaid;
+
 
   return (
     <>
@@ -167,15 +199,15 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               <div>
                 <div className="flex items-center space-x-3">
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {bill.bill_number}
+                    {bill.bill_number || 'N/A'}
                   </h3>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(bill.status)}`}>
-                    {getStatusIcon(bill.status)}
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(bill.payment_status)}`}>
+                    {getStatusIcon(bill.payment_status)}
                     <span className="ml-1 capitalize">
-                      {bill.status === 'paid' ? 'Paid' : 
-                       bill.status === 'pending' ? 'Pending' :
-                       bill.status === 'partial' ? 'Partial' :
-                       bill.status === 'overdue' ? 'Overdue' : bill.status}
+                      {bill.payment_status === 'paid' ? 'Paid' : 
+                       bill.payment_status === 'pending' ? 'Pending' :
+                       bill.payment_status === 'partial' ? 'Partial' :
+                       bill.payment_status === 'overdue' ? 'Overdue' : bill.payment_status}
                     </span>
                   </span>
                 </div>
@@ -186,68 +218,56 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   </span>
                   <span className="flex items-center">
                     <CalendarIcon className="h-4 w-4 mr-1" />
-                    {bill.bill_date ? formatDate(bill.bill_date) : 'No Date'}
+                    {formatDate(bill.sell_date)}
                   </span>
                 </div>
               </div>
             </div>
 
+
             <div className="text-right">
               <div className="flex items-center justify-end space-x-2 mb-1">
                 <div className="text-lg font-semibold text-gray-900">
-                  {formatCurrency(parseFloat(bill.total_amount || 0))}
+                  {formatCurrency(grandTotal)}
                 </div>
-                {bill.receipt_image && (
-                  <button
-                    onClick={() => handleViewReceipt(
-                      `http://localhost:5000/api/caterer-orders/receipts/${bill.receipt_image}`,
-                      `Bill Receipt - ${bill.bill_number}`
-                    )}
-                    className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                    title="View Bill Receipt"
-                  >
-                    <EyeIcon className="h-4 w-4" />
-                  </button>
-                )}
               </div>
-              {bill.status !== 'paid' && parseFloat(bill.pending_amount || 0) > 0 && (
+              {bill.payment_status !== 'paid' && pendingAmount > 0 && (
                 <div className="text-sm text-red-600">
-                  Pending: {formatCurrency(parseFloat(bill.pending_amount || 0))}
+                  Pending: {formatCurrency(pendingAmount)}
                 </div>
               )}
             </div>
           </div>
         </div>
 
+
         {/* Expanded Content */}
         {isExpanded && (
           <div className="border-t border-gray-200">
             <div className="p-6 space-y-6">
-              {/* Order Information */}
+              {/* Sale Information */}
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
                   <DocumentTextIcon className="h-4 w-4 mr-2" />
-                  Order Information
+                  Sale Information
                 </h4>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="font-medium text-gray-700">Order Number:</span>
-                      <span className="ml-2 text-gray-900">{bill.order_number || 'N/A'}</span>
+                      <span className="font-medium text-gray-700">Bill Number:</span>
+                      <span className="ml-2 text-gray-900">{bill.bill_number || 'N/A'}</span>
                     </div>
                     <div>
-                      <span className="font-medium text-gray-700">Bill Date:</span>
-                      <span className="ml-2 text-gray-900">{bill.bill_date ? formatDate(bill.bill_date) : 'N/A'}</span>
+                      <span className="font-medium text-gray-700">Sale Date:</span>
+                      <span className="ml-2 text-gray-900">{formatDate(bill.sell_date)}</span>
                     </div>
-                    {bill.due_date && (
-                      <div>
-                        <span className="font-medium text-gray-700">Due Date:</span>
-                        <span className="ml-2 text-gray-900">{formatDate(bill.due_date)}</span>
-                      </div>
-                    )}
                     <div>
-                      <span className="font-medium text-gray-700">Status:</span>
-                      <span className="ml-2 text-gray-900 capitalize">{bill.status}</span>
+                      <span className="font-medium text-gray-700">Payment Status:</span>
+                      <span className="ml-2 text-gray-900 capitalize">{bill.payment_status || 'Unknown'}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Items Count:</span>
+                      <span className="ml-2 text-gray-900">{bill.items_count || 0}</span>
                     </div>
                   </div>
                   {bill.notes && (
@@ -259,58 +279,155 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 </div>
               </div>
 
-              {/* Bill Summary */}
+
+              {/* Sale Items */}
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                  <CurrencyRupeeIcon className="h-4 w-4 mr-2" />
-                  Bill Summary
+                  <DocumentTextIcon className="h-4 w-4 mr-2" />
+                  Sale Items
                 </h4>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Subtotal:</span>
-                      <span>{formatCurrency(parseFloat(bill.subtotal || 0))}</span>
-                    </div>
-                    {bill.tax_amount && parseFloat(bill.tax_amount || 0) > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span>Tax:</span>
-                        <span>{formatCurrency(parseFloat(bill.tax_amount || 0))}</span>
+                    {(bill.items && Array.isArray(bill.items) && bill.items.length > 0) ? bill.items.map((item, index) => (
+                      <div key={index} className="border-b border-gray-200 last:border-b-0 pb-2 last:pb-0">
+                        {/* Main Item Row */}
+                        <div className="flex justify-between items-center text-sm">
+                          <div className="flex-1 flex items-center">
+                            {/* Expand/Collapse button for mix products */}
+                            {isMixProduct(item) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleMixItem(index);
+                                }}
+                                className="mr-2 text-gray-400 hover:text-gray-600 transition-colors"
+                              >
+                                {expandedMixItems[index] ? (
+                                  <ChevronDownIcon className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRightIcon className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
+                            <div className={!isMixProduct(item) ? 'ml-6' : ''}>
+                              <span className="font-medium">
+                                {item.isMixHeader ? item.mixName || item.product_name : item.product_name || 'Unknown Product'}
+                              </span>
+                              {isMixProduct(item) && (
+                                <span className="ml-2 text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
+                                  {item.isMixHeader ? 'Custom Mix' : 'Mix Item'}
+                                </span>
+                              )}
+                              <span className="text-gray-600 ml-2">
+                                ({item.quantity || 0} {item.unit || 'unit'} × ₹{parseFloat(item.rate || 0).toFixed(2)})
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-medium">₹{parseFloat(item.total_amount || 0).toFixed(2)}</div>
+                            {parseFloat(item.gst_amount || 0) > 0 && (
+                              <div className="text-xs text-gray-500">
+                                GST: ₹{parseFloat(item.gst_amount || 0).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Expanded Mix Items */}
+                        {isMixProduct(item) && expandedMixItems[index] && (
+                          <div className="ml-10 mt-2 bg-orange-50 rounded-lg p-3 border border-orange-200">
+                            <div className="text-xs font-medium text-orange-800 mb-2 flex items-center">
+                              <DocumentTextIcon className="h-3 w-3 mr-1" />
+                              Mix Contents ({item.isMixHeader ? item.mixItems?.length || 0 : 'N/A'} items)
+                            </div>
+                            <div className="space-y-1.5">
+                              {item.isMixHeader && item.mixItems ? (
+                                item.mixItems.map((mixItem, mixIndex) => (
+                                  <div key={mixIndex} className="flex justify-between items-center text-xs text-orange-700 bg-white/60 rounded p-2">
+                                    <div className="flex-1">
+                                      <span className="font-medium">{mixItem.name || mixItem.product_name || 'Unknown'}</span>
+                                      <span className="text-orange-600 ml-2">
+                                        {mixItem.calculatedQuantity || mixItem.quantity || 0} {mixItem.unit || 'unit'}
+                                      </span>
+                                    </div>
+                                    <div className="text-orange-600 font-medium">
+                                      ₹{parseFloat(mixItem.allocatedBudget || mixItem.total_amount || 0).toFixed(2)}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : item.mixItems ? (
+                                item.mixItems.map((mixItem, mixIndex) => (
+                                  <div key={mixIndex} className="flex justify-between items-center text-xs text-orange-700 bg-white/60 rounded p-2">
+                                    <div className="flex-1">
+                                      <span className="font-medium">{mixItem.name || mixItem.product_name || 'Unknown'}</span>
+                                      <span className="text-orange-600 ml-2">
+                                        {mixItem.calculatedQuantity || mixItem.quantity || 0} {mixItem.unit || 'unit'}
+                                      </span>
+                                    </div>
+                                    <div className="text-orange-600 font-medium">
+                                      ₹{parseFloat(mixItem.allocatedBudget || mixItem.total_amount || 0).toFixed(2)}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-xs text-orange-600 text-center py-2">
+                                  No mix items details available
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div className="flex justify-between text-sm font-medium border-t border-gray-300 pt-2">
-                      <span>Total Amount:</span>
-                      <span>{formatCurrency(parseFloat(bill.total_amount || 0))}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Paid Amount:</span>
-                      <span className="text-green-600">{formatCurrency(parseFloat(bill.paid_amount || 0))}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span>Pending Amount:</span>
-                      <span className={parseFloat(bill.pending_amount || 0) > 0 ? 'text-red-600' : 'text-green-600'}>
-                        {formatCurrency(parseFloat(bill.pending_amount || 0))}
-                      </span>
-                    </div>
-                    {bill.receipt_image && (
-                      <div className="flex justify-between text-xs text-gray-500 pt-2">
-                        <span className="flex items-center">
-                          <PhotoIcon className="h-3 w-3 mr-1" />
-                          Bill Receipt Available
-                        </span>
-                        <button
-                          onClick={() => handleViewReceipt(
-                            `http://localhost:5000/api/caterer-orders/receipts/${bill.receipt_image}`,
-                            `Bill Receipt - ${bill.bill_number}`
-                          )}
-                          className="text-orange-600 hover:text-orange-700 font-medium"
-                        >
-                          View
-                        </button>
+                    )) : (
+                      <div className="text-sm text-gray-500 text-center py-4">
+                        No items found
                       </div>
                     )}
                   </div>
+                  
+                  {/* Bill Summary */}
+                  <div className="border-t border-gray-200 mt-4 pt-4 space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span>Items Total:</span>
+                      <span>₹{parseFloat(bill.items_total || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>GST:</span>
+                      <span>₹{parseFloat(bill.total_gst || 0).toFixed(2)}</span>
+                    </div>
+                    {/* Other Charges */}
+                    {(bill.other_charges && Array.isArray(bill.other_charges) && bill.other_charges.length > 0) ? (
+                      <>
+                        {bill.other_charges.map((charge, index) => (
+                          <div key={index} className="flex justify-between text-sm">
+                            <span>{charge.charge_name || 'Charge'}:</span>
+                            <span>
+                              {charge.charge_type === 'percentage'
+                                ? `${charge.charge_amount}% (₹${parseFloat((bill.items_total || 0) * charge.charge_amount / 100).toFixed(2)})`
+                                : `₹${parseFloat(charge.charge_amount || 0).toFixed(2)}`
+                              }
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-medium">
+                          <span>Other Charges Total:</span>
+                          <span>₹{parseFloat(bill.other_charges_total || 0).toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>Other Charges:</span>
+                        <span>₹0.00</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm font-semibold border-t border-gray-300 pt-1">
+                      <span>Grand Total:</span>
+                      <span>₹{parseFloat(bill.grand_total || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
+
 
               {/* Payment Information */}
               <div>
@@ -319,7 +436,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   Payment Information
                 </h4>
                 
-                {bill.status === 'pending' && (!bill.payments || bill.payments.length === 0) ? (
+                {bill.payment_status === 'pending' && (!bill.payments || bill.payments.length === 0) ? (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -327,7 +444,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                           No payments recorded yet
                         </p>
                         <p className="text-xs text-yellow-600 mt-1">
-                          Created on {bill.created_at ? formatDate(bill.created_at) : 'Unknown date'}
+                          Created on {formatDate(bill.created_at)}
                         </p>
                       </div>
                       <button
@@ -351,14 +468,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                               </span>
                             </div>
                             <div className="text-lg font-semibold text-green-600">
-                              {formatCurrency(parseFloat(payment.amount || 0))}
+                              {formatCurrency(parseFloat(payment.payment_amount || 0))}
                             </div>
                           </div>
                           <div className="flex items-center space-x-3">
                             <div className="text-right text-sm text-gray-600">
                               <div className="flex items-center">
                                 <CalendarIcon className="h-4 w-4 mr-1" />
-                                {payment.payment_date ? formatDate(payment.payment_date) : 'No Date'}
+                                {formatDate(payment.payment_date)}
                               </div>
                               {payment.payment_time && (
                                 <div className="flex items-center mt-1">
@@ -370,8 +487,8 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                             {payment.receipt_image && (
                               <button
                                 onClick={() => handleViewReceipt(
-                                  `http://localhost:5000/api/caterer-orders/receipts/${payment.receipt_image}`,
-                                  `Payment Receipt - ${formatCurrency(parseFloat(payment.amount || 0))}`
+                                  `http://localhost:5000/api/caterer-sales/receipts/${payment.receipt_image}`,
+                                  `Payment Receipt - ${formatCurrency(parseFloat(payment.payment_amount || 0))}`
                                 )}
                                 className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                                 title="View Payment Receipt"
@@ -381,11 +498,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                             )}
                           </div>
                         </div>
-                        {payment.reference_number && (
-                          <div className="mt-2 text-sm text-gray-600">
-                            <span className="font-medium">Reference:</span> {payment.reference_number}
-                          </div>
-                        )}
                         {payment.notes && (
                           <div className="mt-2 text-sm text-gray-600">
                             <span className="font-medium">Note:</span> {payment.notes}
@@ -404,7 +516,8 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                       </div>
                     )}
 
-                    {bill.status !== 'paid' && parseFloat(bill.pending_amount || 0) > 0 && (
+
+                    {bill.payment_status !== 'paid' && pendingAmount > 0 && (
                       <div className="flex justify-end">
                         <button
                           onClick={handleCollectPayment}
@@ -422,6 +535,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         )}
       </div>
 
+
       {/* Payment Dialog */}
       <PaymentDialog
         isOpen={showPaymentDialog}
@@ -430,11 +544,11 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         onPaymentSuccess={handlePaymentSuccess}
       />
 
+
       {/* Receipt Modal */}
       {showReceiptModal && (
         <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] w-full overflow-hidden">
-            {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
                 <PhotoIcon className="h-5 w-5 mr-2" />
@@ -448,7 +562,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               </button>
             </div>
 
-            {/* Content */}
             <div className="p-6 overflow-auto max-h-[calc(90vh-120px)]">
               {currentReceiptImage ? (
                 <div className="flex justify-center">
@@ -480,5 +593,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     </>
   );
 };
+
 
 export default CatererBillCard;

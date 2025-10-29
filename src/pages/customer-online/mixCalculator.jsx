@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-react';
 
-// Global counter to persist across modal sessions
-let globalMixCounter = 1;
-
 const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   const [totalBudget, setTotalBudget] = useState('');
   const [mixName, setMixName] = useState('');
@@ -133,8 +130,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   // Add mix to cart
   const handleAddMixToCart = useCallback(() => {
     if (!validateMix() || !mixCalculation) return;
-    const mixId = `mix-${globalMixCounter}`;
-    globalMixCounter += 1;
+    const mixId = `mix-${Date.now()}`;
     
     const totalWeight = mixCalculation.mixItems.reduce((sum, item) => sum + (parseFloat(item.calculatedQuantity) || 0), 0);
     const customDetails = {
@@ -142,22 +138,20 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
       totalBudget: Number(totalBudget),
       itemCount: mixCalculation.mixItems.length,
       totalWeight: totalWeight,
-      mixNumber: globalMixCounter - 1,
-      mixName: mixName || `Mix ${globalMixCounter - 1}`
+      mixName: mixName || 'Custom Mix'
     };
     
     const mixCartItem = {
       id: mixId,
-      name: mixName || `Mix ${globalMixCounter - 1}`,
+      name: mixName || 'Custom Mix',
       price: Number(totalBudget),
       quantity: 1,
       isMix: true,
       source: 'mix-calculator',
       custom_details: customDetails,
-      displayName: mixName || `Mix ${globalMixCounter - 1}`,
+      displayName: mixName || 'Custom Mix',
       unit: 'mix',
-      totalWeight: totalWeight,
-      mixNumber: globalMixCounter - 1
+      totalWeight: totalWeight
     };
     
     onAddToCart(mixCartItem);
@@ -372,7 +366,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
           {mixCalculation && (
             <div className="bg-green-50/80 backdrop-blur-sm border border-green-200 rounded-lg p-4">
               <h4 className="font-semibold text-green-800 mb-3">
-                Mix {globalMixCounter} Calculation
+                {mixName || 'Custom Mix'} Calculation
               </h4>
               <div className="space-y-2">
                 {mixCalculation.mixItems.map((item, index) => (
@@ -412,7 +406,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
             className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             <ShoppingCart className="h-4 w-4" />
-            Add {mixName || `Mix ${globalMixCounter}`} to Cart
+            Add {mixName || 'Custom Mix'} to Cart
           </button>
         </div>
       </div>

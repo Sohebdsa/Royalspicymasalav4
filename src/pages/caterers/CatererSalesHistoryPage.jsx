@@ -83,33 +83,32 @@ const CatererSalesHistoryPage = () => {
       filtered = filtered.filter(bill =>
         bill.bill_number.toLowerCase().includes(term) ||
         bill.caterer_name?.toLowerCase().includes(term) ||
-        bill.contact_person?.toLowerCase().includes(term) ||
-        bill.order_number?.toLowerCase().includes(term)
+        bill.contact_person?.toLowerCase().includes(term)
       );
     }
 
     // Filter by caterer
     if (selectedCaterer) {
-      filtered = filtered.filter(bill => 
+      filtered = filtered.filter(bill =>
         bill.caterer_id === parseInt(selectedCaterer)
       );
     }
 
     // Filter by status
     if (selectedStatus) {
-      filtered = filtered.filter(bill => bill.status === selectedStatus);
+      filtered = filtered.filter(bill => bill.payment_status === selectedStatus);
     }
 
     // Filter by date range
     if (dateFrom) {
-      filtered = filtered.filter(bill => 
-        new Date(bill.bill_date) >= new Date(dateFrom)
+      filtered = filtered.filter(bill =>
+        new Date(bill.sell_date) >= new Date(dateFrom)
       );
     }
 
     if (dateTo) {
-      filtered = filtered.filter(bill => 
-        new Date(bill.bill_date) <= new Date(dateTo)
+      filtered = filtered.filter(bill =>
+        new Date(bill.sell_date) <= new Date(dateTo)
       );
     }
 
@@ -220,8 +219,6 @@ const CatererSalesHistoryPage = () => {
               <option value="pending">Pending</option>
               <option value="partial">Partial</option>
               <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-              <option value="cancelled">Cancelled</option>
             </select>
 
             {/* Date From */}
@@ -258,16 +255,13 @@ const CatererSalesHistoryPage = () => {
             </p>
             <div className="flex items-center space-x-4 text-sm">
               <span className="text-green-600">
-                Paid: {filteredBills.filter(b => b.status === 'paid').length}
+                Paid: {filteredBills.filter(b => b.payment_status === 'paid').length}
               </span>
               <span className="text-yellow-600">
-                Pending: {filteredBills.filter(b => b.status === 'pending').length}
+                Pending: {filteredBills.filter(b => b.payment_status === 'pending').length}
               </span>
               <span className="text-blue-600">
-                Partial: {filteredBills.filter(b => b.status === 'partial').length}
-              </span>
-              <span className="text-red-600">
-                Overdue: {filteredBills.filter(b => b.status === 'overdue').length}
+                Partial: {filteredBills.filter(b => b.payment_status === 'partial').length}
               </span>
             </div>
           </div>

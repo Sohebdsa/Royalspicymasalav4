@@ -114,18 +114,15 @@ const CaterersPage = () => {
 
   // Add Dialog Handlers
   const handleAddCaterer = () => {
-    console.log('🆕 Opening add caterer dialog');
     setShowAddDialog(true);
   };
 
   const handleCloseAddDialog = () => {
-    console.log('❌ Closing add caterer dialog');
     setShowAddDialog(false);
     setError(null);
   };
 
   const handleCatererAdded = (newCaterer) => {
-    console.log('✅ New caterer added:', newCaterer);
     setCaterers(prev => [newCaterer, ...prev]);
     setShowAddDialog(false);
     setError(null);
@@ -134,20 +131,17 @@ const CaterersPage = () => {
 
   // Edit Dialog Handlers
   const handleEditCaterer = (caterer) => {
-    console.log('✏️ Opening edit dialog for:', caterer);
     setEditingCaterer(caterer);
     setShowEditDialog(true);
   };
 
   const handleCloseEditDialog = () => {
-    console.log('❌ Closing edit caterer dialog');
     setShowEditDialog(false);
     setEditingCaterer(null);
   };
 
   const handleCatererUpdated = (updatedCaterer) => {
-    console.log('✅ Caterer updated:', updatedCaterer);
-    setCaterers(prev => prev.map(c => 
+    setCaterers(prev => prev.map(c =>
       c.id === updatedCaterer.id ? updatedCaterer : c
     ));
     setShowEditDialog(false);
@@ -158,8 +152,6 @@ const CaterersPage = () => {
   // Delete caterer handler
   const handleDeleteCaterer = async (caterer) => {
     try {
-      console.log('🗑️ Deleting caterer:', caterer.id);
-      
       const response = await fetch(`${API_BASE_URL}/caterers/${caterer.id}`, {
         method: 'DELETE',
       });
@@ -171,7 +163,6 @@ const CaterersPage = () => {
       }
       
       if (data.success) {
-        console.log('✅ Caterer deleted successfully');
         setCaterers(prev => prev.filter(c => c.id !== caterer.id));
         showSuccess('Caterer deleted successfully');
       } else {
@@ -187,7 +178,6 @@ const CaterersPage = () => {
   // Update caterer (for refresh after operations)
   const handleCatererUpdatedRefresh = async () => {
     try {
-      console.log('🔄 Refreshing caterers after update...');
       await fetchCaterers();
     } catch (error) {
       console.error('❌ Error refreshing caterers:', error);

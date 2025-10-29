@@ -27,34 +27,23 @@ const CatererCard = ({ caterer, onEdit, onDelete, onCatererUpdated }) => {
   // Helper function to get proper image URL
   const getImageUrl = () => {
     if (caterer.card_image_url) {
-      console.log('Using card_image_url:', caterer.card_image_url);
       return caterer.card_image_url;
     }
 
     if (caterer.card_image) {
       const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const constructedUrl = `${API_BASE_URL}/images/${caterer.card_image}`;
-      console.log('Using constructed URL:', constructedUrl);
-      return constructedUrl;
+      return `${API_BASE_URL}/images/${caterer.card_image}`;
     }
 
-    console.log('No image available for caterer:', caterer.caterer_name);
     return null;
   };
 
   const handleImageError = (e) => {
-    console.warn(`Failed to load image for caterer: ${caterer.caterer_name}`, {
-      attempted_url: e.target.src,
-      card_image_url: caterer.card_image_url,
-      card_image: caterer.card_image,
-      error_type: 'IMAGE_LOAD_ERROR'
-    });
     setImageError(true);
     setImageLoading(false);
   };
 
   const handleImageLoad = () => {
-    console.log(`Successfully loaded image for caterer: ${caterer.caterer_name}`);
     setImageLoading(false);
     setImageError(false);
   };

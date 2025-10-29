@@ -2,11 +2,13 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database.cjs');
 
+
 // Middleware to log requests
 const logRequest = (req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
   next();
 };
+
 
 // Middleware to validate sales data
 const validateSalesData = (req, res, next) => {
@@ -20,6 +22,7 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
+
     // Basic validation - check if it's an object
     if (typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({
@@ -28,6 +31,7 @@ const validateSalesData = (req, res, next) => {
         error: 'INVALID_REQUEST_FORMAT'
       });
     }
+
 
     // Validate required fields
     const required = ['caterer_id', 'bill_number', 'sell_date', 'grand_total'];
@@ -41,6 +45,7 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
+
     // Validate items array
     if (!req.body.items || !Array.isArray(req.body.items) || req.body.items.length === 0) {
       return res.status(400).json({
@@ -49,6 +54,7 @@ const validateSalesData = (req, res, next) => {
         error: 'INVALID_ITEMS'
       });
     }
+
 
     next();
   } catch (error) {
@@ -61,7 +67,7 @@ const validateSalesData = (req, res, next) => {
   }
 };
 
-// POST /api/caterer-sales/create - Create new caterer sale
+
 // POST /api/caterer-sales/create - Create new caterer sale
 router.post('/create',
   logRequest,
@@ -79,6 +85,7 @@ router.post('/create',
           error: 'DB_POOL_NOT_FOUND'
         });
       }
+
 
       // Get connection from pool
       connection = await db.pool.getConnection();
@@ -127,7 +134,8 @@ router.post('/create',
         for (const item of saleData.items) {
           const amount = (item.quantity || 0) * (item.rate || 0);
           const gstAmount = item.gst_amount || 0;
-          const totalAmount = amount + gstAmount;
+          // For mix products, use the provided total amount if available, otherwise calculate normally
+          const totalAmount = item.isMix || item.total ? parseFloat(item.total || amount) : (amount + gstAmount);
           
           // Handle batch information - support both single batch and multiple batches
           let batchNumber = null;
@@ -172,15 +180,22 @@ router.post('/create',
       if (saleData.other_charges && Array.isArray(saleData.other_charges) && saleData.other_charges.length > 0) {
         console.log(`📝 Inserting ${saleData.other_charges.length} other charges...`);
         for (const charge of saleData.other_charges) {
+          // Map charge type to database enum values
+          let chargeType = charge.type || 'fixed';
+          if (chargeType === 'discount') {
+            // Convert discount to either fixed or percentage based on value_type
+            chargeType = charge.value_type === 'percentage' ? 'percentage' : 'fixed';
+          }
+          
           await connection.execute(
             `INSERT INTO caterer_sale_other_charges
              (sale_id, charge_name, charge_amount, charge_type)
              VALUES (?, ?, ?, ?)`,
             [
               saleId,
-              charge.charge_name || '',
-              charge.charge_amount || 0,
-              charge.charge_type || 'fixed'
+              charge.name || '', // Use the correct property name from frontend
+              charge.value || 0, // Use value instead of charge_amount
+              chargeType // Use mapped charge type
             ]
           );
         }
@@ -253,6 +268,7 @@ router.post('/create',
   }
 );
 
+
 // GET /api/caterer-sales/caterer/:caterer_id - Get all sales for a caterer
 router.get('/caterer/:caterer_id', logRequest, async (req, res) => {
   try {
@@ -280,6 +296,7 @@ router.get('/caterer/:caterer_id', logRequest, async (req, res) => {
     });
   }
 });
+
 
 // GET /api/caterer-sales/:sale_id/details - Get sale details with items and payments
 router.get('/:sale_id/details', logRequest, async (req, res) => {
@@ -334,6 +351,7 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
   }
 });
 
+
 // GET /api/caterer-sales/next-bill-number - Get next available bill number
 router.get('/next-bill-number', logRequest, async (req, res) => {
   try {
@@ -363,6 +381,7 @@ router.get('/next-bill-number', logRequest, async (req, res) => {
     });
   }
 });
+
 
 // Test endpoint
 router.get('/test', (req, res) => {
@@ -397,6 +416,7 @@ router.get('/test', (req, res) => {
   });
 });
 
+
 // Health check
 router.get('/health', (req, res) => {
   res.json({
@@ -407,14 +427,90 @@ router.get('/health', (req, res) => {
   });
 });
 
+
+// GET /api/caterer-sales - Get all caterer sales with complete details
+router.get('/', logRequest, async (req, res) => {
+  try {
+    console.log('📊 Fetching all caterer sales with details...');
+    
+    // Get all sales with caterer details
+    const [sales] = await db.pool.execute(`
+      SELECT cs.*,
+             c.caterer_name,
+             c.contact_person,
+             c.phone_number,
+             c.email,
+             c.address,
+             c.city,
+             c.state,
+             c.pincode,
+             c.gst_number,
+             (SELECT COUNT(*) FROM caterer_sale_items WHERE sale_id = cs.id) as items_count,
+             (SELECT SUM(payment_amount) FROM caterer_sale_payments WHERE sale_id = cs.id) as total_paid
+      FROM caterer_sales cs
+      LEFT JOIN caterers c ON cs.caterer_id = c.id
+      ORDER BY cs.sell_date DESC, cs.created_at DESC
+    `);
+    
+    console.log(`✅ Found ${sales.length} sales, fetching related data...`);
+    
+    // Fetch related data for each sale
+    const salesWithDetails = await Promise.all(
+      sales.map(async (sale) => {
+        // Get sale items
+        const [items] = await db.pool.execute(
+          'SELECT * FROM caterer_sale_items WHERE sale_id = ? ORDER BY id',
+          [sale.id]
+        );
+        
+        // Get payments
+        const [payments] = await db.pool.execute(
+          'SELECT * FROM caterer_sale_payments WHERE sale_id = ? ORDER BY payment_date DESC, created_at DESC',
+          [sale.id]
+        );
+        
+        // Get other charges
+        const [charges] = await db.pool.execute(
+          'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ? ORDER BY id',
+          [sale.id]
+        );
+        
+        return {
+          ...sale,
+          items: items || [],
+          payments: payments || [],
+          other_charges: charges || []
+        };
+      })
+    );
+    
+    console.log(`✅ Successfully fetched complete details for ${salesWithDetails.length} sales`);
+    
+    res.json({
+      success: true,
+      data: salesWithDetails,
+      count: salesWithDetails.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching caterer sales:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch caterer sales',
+      error: error.message
+    });
+  }
+});
+
+
 // GET root endpoint
-router.get('/', (req, res) => {
+router.get('/root', (req, res) => {
   res.json({
     success: true,
     message: 'Caterer sales API is available',
     timestamp: new Date().toISOString(),
     availableEndpoints: [
       'POST /create - Create new sale',
+      'GET / - Get all caterer sales with complete details',
       'GET /caterer/:caterer_id - Get caterer sales',
       'GET /:sale_id/details - Get sale details',
       'GET /next-bill-number - Get next bill number',
@@ -424,6 +520,7 @@ router.get('/', (req, res) => {
   });
 });
 
+
 // Error handler
 router.use('*', (req, res) => {
   res.status(404).json({
@@ -432,6 +529,7 @@ router.use('*', (req, res) => {
     requestedPath: req.originalUrl,
     availableRoutes: [
       'POST /create',
+      'GET /',
       'GET /caterer/:caterer_id',
       'GET /:sale_id/details',
       'GET /next-bill-number',
@@ -440,5 +538,6 @@ router.use('*', (req, res) => {
     ]
   });
 });
+
 
 module.exports = router;

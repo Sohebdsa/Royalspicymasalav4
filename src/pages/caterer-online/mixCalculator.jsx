@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-react';
 
-// Global counter to persist across modal sessions
-let globalMixCounter = 1;
-
 const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   const [totalBudget, setTotalBudget] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -129,11 +126,11 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
   // Add mix to cart
   const handleAddMixToCart = useCallback(() => {
     if (!validateMix() || !mixCalculation) return;
-    const mixId = `mix-${globalMixCounter}`;
-    globalMixCounter += 1;
+    const mixId = `mix-${Date.now()}`;
+    const mixName = `Custom Mix`;
     const mixCartItem = {
       id: mixId,
-      name: `Mix ${globalMixCounter - 1}`,
+      name: mixName,
       price: Number(totalBudget),
       quantity: 1,
       isMix: true,
@@ -144,7 +141,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
         itemCount: mixCalculation.mixItems.length,
         totalWeight: mixCalculation.mixItems.reduce((sum, item) => sum + (parseFloat(item.calculatedQuantity) || 0), 0)
       },
-      displayName: `Mix ${globalMixCounter - 1} (${mixCalculation.mixItems.length} items mix)`,
+      displayName: `${mixName} (${mixCalculation.mixItems.length} items mix)`,
       unit: 'mix'
     };
     onAddToCart(mixCartItem);
@@ -244,7 +241,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
                 <p className="text-red-500 text-xs mt-1">{errors.budget}</p>
               )}
               <p className="text-sm text-gray-500 mt-1">
-                Mix will be automatically named as "Mix {globalMixCounter}" and will cost exactly this amount
+                Mix will be automatically named as "Custom Mix" and will cost exactly this amount
               </p>
             </div>
           </div>
@@ -355,7 +352,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
           {mixCalculation && (
             <div className="bg-green-50/80 backdrop-blur-sm border border-green-200 rounded-lg p-4">
               <h4 className="font-semibold text-green-800 mb-3">
-                Mix {globalMixCounter} Calculation
+                Custom Mix Calculation
               </h4>
               <div className="space-y-2">
                 {mixCalculation.mixItems.map((item, index) => (
@@ -399,7 +396,7 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
             className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             <ShoppingCart className="h-4 w-4" />
-            Add Mix {globalMixCounter} to Cart
+            Add Custom Mix to Cart
           </button>
         </div>
       </div>

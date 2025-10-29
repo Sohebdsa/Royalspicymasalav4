@@ -141,8 +141,6 @@ export const withCache = async (endpoint, fetchFn, params = {}, options = {}) =>
     }
   }
 
-  console.log(`🌐 Fetching fresh data for ${endpoint}`);
-  
   // Fetch data from API
   try {
     const data = await fetchFn(params);
@@ -150,7 +148,6 @@ export const withCache = async (endpoint, fetchFn, params = {}, options = {}) =>
     // Store in cache (if data is valid)
     if (data && (!data.error || data.success)) {
       cache.set(endpoint, params, data, ttl);
-      console.log(`💾 Cached data for ${endpoint}`);
     }
     
     return data;

@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { Calculator, Plus, Minus, X, ShoppingCart, ChevronDown } from 'lucide-react';
 
-// Global counter to persist across modal sessions
-let globalMixCounter = 1;
-
 const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete }) => {
   const [totalBudget, setTotalBudget] = useState('');
   const [mixName, setMixName] = useState('');
@@ -143,7 +140,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
         calculatedQuantity: item.calculatedQuantity,
         unit: item.unit || 'kg'
       })),
-      mixName: mixName || `Mix ${globalMixCounter}`,
+      mixName: mixName || 'Custom Mix',
       totalBudget: Number(totalBudget),
       mixItems: mixCalculation.mixItems
     };
@@ -356,7 +353,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
           {mixCalculation && (
             <div className="bg-green-50/80 backdrop-blur-sm border border-green-200 rounded-lg p-4">
               <h4 className="font-semibold text-green-800 mb-3">
-                {mixName || `Mix ${globalMixCounter}`} Calculation
+                {mixName || 'Custom Mix'} Calculation
               </h4>
               <div className="space-y-2">
                 {mixCalculation.mixItems.map((item, index) => (
@@ -395,7 +392,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
             className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             <ShoppingCart className="h-4 w-4" />
-            Add {mixName || `Mix ${globalMixCounter}`} to Cart
+            Add {mixName || 'Custom Mix'} to Cart
           </button>
         </div>
       </div>
