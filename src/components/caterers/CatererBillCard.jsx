@@ -25,13 +25,41 @@ import {
 import PaymentDialog from '../suppliers/PaymentDialog';
 import { useToast } from '../../contexts/ToastContext';
 
+// New: base constants and URL normalizer
+const API_BASE = import.meta.env.VITE_API_URL || '';
+const RECEIPTS_BASE = '/caterers/reciept';
+
+const toReceiptUrl = (val) => {
+  if (!val) return '';
+  // absolute URL as-is
+  if (/^https?:\/\//i.test(val)) return val;
+
+  // already new-base path
+  if (val.startsWith(RECEIPTS_BASE)) {
+    return API_BASE ? `${API_BASE}${val}` : val;
+  }
+
+  // legacy uploads path
+  if (val.startsWith('/uploads/receipts/')) {
+    return API_BASE ? `${API_BASE}${val}` : val;
+  }
+
+  // bare filename -> mount under new base
+  if (!val.startsWith('/')) {
+    return API_BASE ? `${API_BASE}${RECEIPTS_BASE}/${val}` : `${RECEIPTS_BASE}/${val}`;
+  }
+
+  // any other leading-slash path -> prefix API base if present
+  return API_BASE ? `${API_BASE}${val}` : val;
+};
+
 const rupee = (v) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(parseFloat(v || 0));
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const { showError } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [expandedMix, setExpandedMix] = useState({}); // keyed by item.id
+  const [expandedMix, setExpandedMix] = useState({});
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receipts, setReceipts] = useState([]);
@@ -41,7 +69,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const grandTotal = useMemo(() => parseFloat(bill?.grand_total || 0), [bill]);
   const totalPaid = useMemo(() => parseFloat(bill?.total_paid || 0), [bill]);
   const pendingAmount = useMemo(() => Math.max(grandTotal - totalPaid, 0), [grandTotal, totalPaid]);
-  
+
   // Debug logging
   console.log('CatererBillCard Debug:', {
     billNumber: bill?.bill_number,
@@ -64,44 +92,59 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   }, []);
 
   const getStatusPill = (status) => {
-    // Calculate actual status based on amounts if not explicitly set
-    let actualStatus = status;
-    if (!status || status === 'unknown') {
-      if (pendingAmount <= 0) {
-        actualStatus = 'paid';
-      } else if (totalPaid > 0) {
-        actualStatus = 'partial';
-      } else {
-        actualStatus = 'pending';
-      }
+  // Prefer authoritative backend status if provided
+  let actualStatus = status && status !== 'unknown' ? String(status).toLowerCase() : '';
+
+  // Derive from totals when missing or inconsistent
+  const gt = Number(grandTotal) || 0;
+  const tp = Number(totalPaid) || 0;
+  const remaining = Math.max(0, +(gt - tp).toFixed(2));
+
+  if (!actualStatus || actualStatus === 'unknown') {
+    if (gt <= 0 && tp <= 0) {
+      actualStatus = 'pending';               // zero bill, zero paid => pending
+    } else if (remaining <= 0 && tp > 0) {
+      actualStatus = 'paid';                  // fully paid or overpaid => paid
+    } else if (tp > 0 && remaining > 0) {
+      actualStatus = 'partial';               // some paid, some due => partial
+    } else {
+      actualStatus = 'pending';               // nothing paid yet => pending
     }
-    
-    const map = {
-      paid: 'bg-green-100 text-green-800 border-green-200',
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      partial: 'bg-blue-100 text-blue-800 border-blue-200',
-      overdue: 'bg-red-100 text-red-800 border-red-200',
-      cancelled: 'bg-red-100 text-red-800 border-red-200'
-    };
-    const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
-    const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
-    
-    console.log('Status calculation:', {
-      originalStatus: status,
-      calculatedStatus: actualStatus,
-      grandTotal,
-      totalPaid,
-      pendingAmount,
-      isFullyPaid: pendingAmount <= 0
-    });
-    
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-        <Icon className="h-4 w-4" />
-        <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
-      </span>
-    );
+  } else {
+    // Sanity-correct a mismatched status against math
+    if (remaining <= 0 && tp > 0) actualStatus = 'paid';
+    else if (tp > 0 && remaining > 0) actualStatus = 'partial';
+    else if (tp <= 0 && remaining > 0) actualStatus = 'pending';
+  }
+
+  const map = {
+    paid: 'bg-green-100 text-green-800 border-green-200',
+    pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    partial: 'bg-blue-100 text-blue-800 border-blue-200',
+    overdue: 'bg-red-100 text-red-800 border-red-200',
+    cancelled: 'bg-red-100 text-red-800 border-red-200'
   };
+  const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
+  const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+  console.log('Status calculation:', {
+    originalStatus: status,
+    calculatedStatus: actualStatus,
+    grandTotal: gt,
+    totalPaid: tp,
+    remaining,
+    pendingAmount, // keep your existing debug if needed
+    isFullyPaid: remaining <= 0
+  });
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      <Icon className="h-4 w-4" />
+      <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
+    </span>
+  );
+};
+
 
   const getPaymentIcon = (method) => {
     switch (method) {
@@ -115,14 +158,13 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   };
 
   const isMixProduct = (item) => {
-    // Treat as mix if flagged and has contents
     const hasFlag = item?.is_mix === true || item?.is_mix === 1;
     const hasChildren = Array.isArray(item?.mix_items) && item?.mix_items.length > 0;
     return hasFlag && hasChildren;
   };
 
   const toggleBill = () => {
-    if (isExpanded) setExpandedMix({}); // reset all mix states when collapsing
+    if (isExpanded) setExpandedMix({});
     setIsExpanded((p) => !p);
   };
 
@@ -132,7 +174,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   };
 
   const handleCollectPayment = () => setShowPaymentDialog(true);
-
   const handlePaymentSuccess = () => {
     setShowPaymentDialog(false);
     onPaymentUpdate?.();
@@ -436,7 +477,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                         hasSingleReceipt: !!p?.receipt_image,
                         hasMultipleReceipts: Array.isArray(p?.receipt_images) && p.receipt_images.length > 0
                       });
-                      
+
                       return (
                         <div key={p?.id} className="bg-gray-50 rounded-lg p-4">
                           <div className="flex items-center justify-between">
@@ -467,33 +508,23 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                               </div>
 
                               <div className="flex items-center gap-2">
-                                {/* Check for various receipt field names */}
                                 {(() => {
                                   const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl;
-                                  const hasMultipleReceipts = Array.isArray(p?.receipt_images) && p.receipt_images.length > 0 ||
-                                                            Array.isArray(p?.receipts) && p.receipts.length > 0;
-                                  
-                                  console.log(`Payment ${p?.id} receipt check:`, {
-                                    hasSingleReceipt,
-                                    hasMultipleReceipts,
-                                    receipt_image: p?.receipt_image,
-                                    receipt: p?.receipt,
-                                    receiptUrl: p?.receiptUrl,
-                                    receipt_images: p?.receipt_images,
-                                    receipts: p?.receipts
-                                  });
-                                  
+                                  const hasMultipleReceipts =
+                                    (Array.isArray(p?.receipt_images) && p.receipt_images.length > 0) ||
+                                    (Array.isArray(p?.receipts) && p.receipts.length > 0);
+
                                   return (
                                     <>
-                                      {/* Single receipt button */}
                                       {hasSingleReceipt && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            const receiptUrl = p.receipt_image || p.receipt || p.receiptUrl;
+                                            const raw = p.receipt_image || p.receipt || p.receiptUrl;
+                                            const normalized = toReceiptUrl(raw);
                                             openSingleReceipt(
-                                              `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/caterer-sales/receipts/${receiptUrl}`,
+                                              normalized,
                                               `Payment Receipt - ${rupee(p?.payment_amount || 0)}`
                                             );
                                           }}
@@ -503,28 +534,26 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                                           <EyeIcon className="h-4 w-4" />
                                         </button>
                                       )}
-                                      
-                                      {/* Multiple receipts button */}
+
                                       {hasMultipleReceipts && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             const receiptArray = p.receipt_images || p.receipts;
-                                            const receipts = receiptArray.map((receipt, receiptIndex) => ({
-                                              url: `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/caterer-sales/receipts/${receipt}`,
-                                              title: `Payment Receipt ${receiptIndex + 1} - ${rupee(p?.payment_amount || 0)}`
+                                            const mapped = receiptArray.map((receipt, i) => ({
+                                              url: toReceiptUrl(receipt),
+                                              title: `Payment Receipt ${i + 1} - ${rupee(p?.payment_amount || 0)}`
                                             }));
-                                            openReceipts(receipts);
+                                            openReceipts(mapped);
                                           }}
                                           className="p-1.5 text-blue-500 hover:text-blue-700 rounded"
-                                          title={`View all ${receiptArray.length} receipts`}
+                                          title={`View all ${(p.receipt_images || p.receipts).length} receipts`}
                                         >
                                           <DocumentDuplicateIcon className="h-4 w-4" />
                                         </button>
                                       )}
-                                      
-                                      {/* Debug info for missing receipts */}
+
                                       {!hasSingleReceipt && !hasMultipleReceipts && (
                                         <div className="text-xs text-gray-400" title="No receipt found">
                                           No receipt
@@ -542,8 +571,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                               <span className="font-medium">Note:</span> {p?.notes}
                             </div>
                           )}
-                          
-                          {/* Show receipt count if multiple receipts */}
+
                           {Array.isArray(p?.receipt_images) && p.receipt_images.length > 1 && (
                             <div className="mt-2 text-xs text-blue-600 flex items-center">
                               <DocumentDuplicateIcon className="h-3 w-3 mr-1" />
@@ -643,7 +671,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                       e.currentTarget.style.display = 'none';
                       e.currentTarget.parentElement.innerHTML = `
                         <div class="text-center py-12">
-                          <PhotoIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M3 3h18v18H3z"/></svg>
                           <p class="text-gray-600">Receipt image could not be loaded</p>
                         </div>
                       `;

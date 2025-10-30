@@ -1,6 +1,47 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database.cjs');
+const path = require('path');
+const fs = require('fs/promises');
+
+const methodMap = {
+  cash:'cash',
+  upi:'upi',
+  card:'card',
+  bank:'bank_transfer',
+  bank_transfer:'bank_transfer',
+  cheque:'cheque',
+  check:'cheque',
+  credit:'credit'
+};
+
+async function saveReceiptImage(receipt) {
+  if (!receipt?.data) return null;
+  const safeName = Date.now() + '_' + (receipt.filename || 'receipt');
+  const ext = path.extname(receipt.filename || '') || '.png';
+  const outDir = path.join(process.cwd(), 'public', 'uploads', 'receipts');
+  await fs.mkdir(outDir, { recursive: true });
+  const filePath = path.join(outDir, safeName + ext);
+  const base64 = receipt.data.split(',').pop();
+  await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
+  return '/uploads/receipts/' + safeName + ext;
+}
+
+function derivePaymentAmount(option, grandTotal, customAmount) {
+  const gt = Number(grandTotal) || 0;
+  const opt = String(option || 'full').toLowerCase();
+  if (opt === 'full') return gt;
+  if (opt === 'half') return Math.round((gt / 2) * 100) / 100;
+  if (opt === 'custom') return Number(customAmount || 0);
+  return 0; // later
+}
+
+// Normalize bill number to #0001 style if you use that elsewhere
+const normBill = b => {
+  if (!b) return b;
+  const num = String(b).replace('#','').replace(/\D/g,'');
+  return '#'+String(num).padStart(4,'0');
+};
 
 // Middleware to log requests
 const logRequest = (req, res, next) => {
@@ -83,19 +124,32 @@ router.post('/create',
       const saleData = req.body;
       const timestamp = new Date().toISOString();
       
+      // Normalize and process data
+      saleData.bill_number = normBill(saleData.bill_number);
+      const normalizedMethod = methodMap[String(saleData.payment_method || '').toLowerCase()] || 'cash';
+      const derivedPayAmount = derivePaymentAmount(saleData.payment_option, saleData.grand_total, saleData.payment_amount);
+
+      const remainingAfterDerived = Math.max(0, +(Number(saleData.grand_total) - Number(derivedPayAmount)).toFixed(2));
+      let initialStatus = 'pending';
+      if (remainingAfterDerived === 0 && Number(derivedPayAmount) > 0) initialStatus = 'paid';
+      else if (Number(derivedPayAmount) > 0) initialStatus = 'partial';
+      
       console.log('📊 Processing sale data:', {
         caterer_id: saleData.caterer_id,
         bill_number: saleData.bill_number,
         items_count: saleData.items?.length || 0,
-        grand_total: saleData.grand_total
+        grand_total: saleData.grand_total,
+        payment_method: normalizedMethod,
+        payment_amount: derivedPayAmount,
+        payment_status: initialStatus
       });
       
       // 1. Insert into caterer_sales table
       console.log('📝 Inserting into caterer_sales table...');
       const [saleResult] = await connection.execute(
-        `INSERT INTO caterer_sales 
-         (caterer_id, bill_number, sell_date, subtotal, total_gst, 
-          items_total, other_charges_total, grand_total, payment_status) 
+        `INSERT INTO caterer_sales
+         (caterer_id, bill_number, sell_date, subtotal, total_gst,
+          items_total, other_charges_total, grand_total, payment_status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           saleData.caterer_id,
@@ -106,7 +160,7 @@ router.post('/create',
           saleData.items_total || 0,
           saleData.other_charges_total || 0,
           saleData.grand_total,
-          saleData.payment_option === 'full' ? 'paid' : 'partial'
+          initialStatus
         ]
       );
       
@@ -274,16 +328,43 @@ router.post('/create',
       
       // 4. Insert payment record
       console.log('📝 Inserting payment record...');
+      
+      // Calculate final payment status based on all payments
+      const [[{ total_paid }]] = await connection.query(
+        'SELECT COALESCE(SUM(payment_amount),0) AS total_paid FROM caterer_sale_payments WHERE sale_id = ?',
+        [saleId]
+      );
+      const gt = Number(saleData.grand_total);
+      const remaining = Math.max(0, +(gt - Number(total_paid)).toFixed(2));
+      let finalStatus = 'pending';
+      if (remaining === 0 && Number(total_paid) > 0) finalStatus = 'paid';
+      else if (Number(total_paid) > 0) finalStatus = 'partial';
+      
+      // Update payment status
+      await connection.execute(
+        'UPDATE caterer_sales SET payment_status = ? WHERE id = ?',
+        [finalStatus, saleId]
+      );
+      console.log(`📊 Payment status updated to: ${finalStatus}`);
+      
+      // Handle receipt image if present
+      let receiptPath = null;
+      if (saleData.receipt_image?.data) {
+        receiptPath = await saveReceiptImage(saleData.receipt_image);
+        console.log('📸 Receipt image saved:', receiptPath);
+      }
+      
       await connection.execute(
         `INSERT INTO caterer_sale_payments
-         (sale_id, payment_date, payment_method, payment_option, payment_amount)
-         VALUES (?, ?, ?, ?, ?)`,
+         (sale_id, payment_date, payment_method, payment_option, payment_amount, receipt_image)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           saleId,
           saleData.payment_date || new Date().toISOString().split('T')[0],
-          saleData.payment_method || 'cash',
+          normalizedMethod,
           saleData.payment_option || 'full',
-          saleData.payment_amount || 0
+          derivedPayAmount,
+          receiptPath || null
         ]
       );
       console.log('✅ Payment record inserted');
@@ -643,6 +724,25 @@ router.use('*', (req, res) => {
       'GET /health',
       'GET /test'
     ]
+  });
+});
+
+// Serve receipt images
+router.get('/receipts/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const imagePath = path.join(process.cwd(), 'public', 'uploads', 'receipts', filename);
+  
+  console.log('📸 Serving receipt image:', imagePath);
+  
+  res.sendFile(imagePath, (err) => {
+    if (err) {
+      console.error('❌ Error serving receipt image:', err);
+      res.status(404).json({
+        success: false,
+        message: 'Receipt image not found',
+        error: err.message
+      });
+    }
   });
 });
 
