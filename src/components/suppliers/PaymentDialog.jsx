@@ -336,42 +336,49 @@ const PaymentDialog = ({ isOpen, onClose, bill, onPaymentSuccess }) => {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Receipt Image (Optional)
           </label>
-          
-          {!receiptPreview ? (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+          <div className="flex items-center justify-center w-full">
+            <label className={`flex flex-col w-full h-32 border-2 border-dashed rounded-md cursor-pointer transition-all ${
+              receiptPreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
+            }`}>
+              {receiptPreview ? (
+                <div className="relative w-full h-full">
+                  <img
+                    src={receiptPreview}
+                    alt="Receipt preview"
+                    className="w-full h-full object-cover rounded-md"
+                  />
+                  <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        removeReceipt();
+                      }}
+                      className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md flex items-center"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center pt-7">
+                  <PhotoIcon className="w-10 h-10 text-gray-400" />
+                  <p className="pt-1 text-sm text-gray-500 text-center px-4">
+                    Click to upload receipt image
+                  </p>
+                </div>
+              )}
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleReceiptChange}
-                className="hidden"
-                id="receipt-upload"
+                className="opacity-0"
               />
-              <label htmlFor="receipt-upload" className="cursor-pointer">
-                <PhotoIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600">
-                  Click to upload receipt image
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  PNG, JPG up to 5MB
-                </p>
-              </label>
-            </div>
-          ) : (
-            <div className="relative">
-              <img
-                src={receiptPreview}
-                alt="Receipt preview"
-                className="w-full h-32 object-cover rounded-lg border border-gray-300"
-              />
-              <button
-                type="button"
-                onClick={removeReceipt}
-                className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
-              >
-                <XMarkIcon className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Supported formats: PNG, JPG up to 5MB
+          </p>
         </div>
 
         {/* Action Buttons */}

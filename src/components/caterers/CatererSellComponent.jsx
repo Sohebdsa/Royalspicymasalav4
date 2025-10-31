@@ -1388,45 +1388,50 @@ const CatererSellComponent = () => {
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Receipt Image (Optional)
                   </label>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-center w-full">
-                      <label className="flex flex-col w-full h-32 border-2 border-gray-300 border-dashed rounded-md cursor-pointer hover:bg-gray-50">
-                        <div className="flex flex-col items-center justify-center pt-7">
-                          <PhotoIcon className="w-8 h-8 text-gray-400" />
-                          <p className="pt-1 text-sm text-gray-500">
-                            {sellData.receipt_image ? sellData.receipt_image.name : "Upload receipt image"}
-                          </p>
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleReceiptImageChange}
-                          className="opacity-0"
-                        />
-                      </label>
-                    </div>
-                    {receiptPreview && (
-                      <div className="mt-2">
-                        <div className="relative inline-block">
+                  <div className="flex items-center justify-center w-full">
+                    <label className={`flex flex-col w-full h-32 border-2 border-dashed rounded-md cursor-pointer transition-all ${
+                      receiptPreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
+                    }`}>
+                      {receiptPreview ? (
+                        <div className="relative w-full h-full">
                           <img
                             src={receiptPreview}
                             alt="Receipt preview"
-                            className="w-32 h-32 object-cover rounded-md border border-gray-300"
+                            className="w-full h-full object-cover rounded-md"
                           />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReceiptPreview(null);
-                              setSellData(prev => ({ ...prev, receipt_image: null }));
-                            }}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-md"
-                          >
-                            <TrashIcon className="h-3 w-3" />
-                          </button>
+                          <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setReceiptPreview(null);
+                                setSellData(prev => ({ ...prev, receipt_image: null }));
+                              }}
+                              className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md flex items-center"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex flex-col items-center justify-center pt-7">
+                          <PhotoIcon className="w-10 h-10 text-gray-400" />
+                          <p className="pt-1 text-sm text-gray-500 text-center px-4">
+                            {sellData.receipt_image ? sellData.receipt_image.name : "Choose receipt image or drag and drop"}
+                          </p>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleReceiptImageChange}
+                        className="opacity-0"
+                      />
+                    </label>
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Supported formats: JPEG, PNG, GIF, WebP (Max 5MB)
+                  </p>
                 </div>
               </div>
             </div>
