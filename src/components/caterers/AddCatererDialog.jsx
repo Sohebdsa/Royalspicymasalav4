@@ -219,13 +219,39 @@ const AddCatererDialog = ({ isOpen, onClose, onCatererAdded }) => {
                 </label>
                 <div className="space-y-2">
                   <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col w-full h-40 border-2 border-gray-300 border-dashed rounded-md cursor-pointer hover:bg-gray-50">
-                      <div className="flex flex-col items-center justify-center pt-7">
-                        <UserIcon className="w-12 h-12 text-gray-400" />
-                        <p className="pt-1 text-sm text-gray-500">
-                          {form.card_image ? form.card_image.name : "Choose caterer image or drag and drop"}
-                        </p>
-                      </div>
+                    <label className={`flex flex-col w-full h-40 border-2 border-dashed rounded-md cursor-pointer transition-all ${
+                      imagePreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
+                    }`}>
+                      {imagePreview ? (
+                        <div className="relative w-full h-full">
+                          <img
+                            src={imagePreview}
+                            alt="Caterer preview"
+                            className="w-full h-full object-cover rounded-md"
+                          />
+                          <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setImagePreview(null);
+                                setForm(f => ({ ...f, card_image: null }));
+                              }}
+                              disabled={submitting}
+                              className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md disabled:opacity-50 flex items-center"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center pt-7">
+                          <UserIcon className="w-12 h-12 text-gray-400" />
+                          <p className="pt-1 text-sm text-gray-500">
+                            {form.card_image ? form.card_image.name : "Choose caterer image or drag and drop"}
+                          </p>
+                        </div>
+                      )}
                       <input
                         type="file"
                         accept="image/*"
@@ -236,28 +262,6 @@ const AddCatererDialog = ({ isOpen, onClose, onCatererAdded }) => {
                       />
                     </label>
                   </div>
-                  {imagePreview && (
-                    <div className="mt-3">
-                      <div className="relative inline-block">
-                        <img
-                          src={imagePreview}
-                          alt="Caterer preview"
-                          className="w-32 h-32 object-cover rounded-md border border-gray-300"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setImagePreview(null);
-                            setForm(f => ({ ...f, card_image: null }));
-                          }}
-                          disabled={submitting}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-md disabled:opacity-50"
-                        >
-                          <XMarkIcon className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
                   {errors.card_image && (
                     <p className="text-red-500 text-xs mt-1">{errors.card_image}</p>
                   )}

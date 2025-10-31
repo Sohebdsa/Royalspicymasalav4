@@ -247,34 +247,60 @@ const EditCatererDialog = ({ isOpen, onClose, caterer, onCatererUpdated }) => {
                   Caterer Card Image
                 </label>
                 <div className="space-y-2">
-                  {/* Current Image Display */}
-                  {existingImageUrl && !imagePreview && (
-                    <div className="mb-3">
-                      <p className="text-sm text-gray-500 mb-2">Current image:</p>
-                      <div className="relative inline-block">
-                        <img
-                          src={existingImageUrl}
-                          alt="Current caterer"
-                          className="w-32 h-32 object-cover rounded-md border border-gray-300"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  
                   {/* File Upload Area */}
                   <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col w-full h-40 border-2 border-gray-300 border-dashed rounded-md cursor-pointer hover:bg-gray-50">
-                      <div className="flex flex-col items-center justify-center pt-7">
-                        <UserIcon className="w-12 h-12 text-gray-400" />
-                        <p className="pt-1 text-sm text-gray-500">
-                          {form.card_image 
-                            ? form.card_image.name 
-                            : existingImageUrl 
-                              ? "Choose new image to replace current one"
-                              : "Choose caterer image or drag and drop"
-                          }
-                        </p>
-                      </div>
+                    <label className={`flex flex-col w-full h-40 border-2 border-dashed rounded-md cursor-pointer transition-all ${
+                      imagePreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
+                    }`}>
+                      {imagePreview ? (
+                        <div className="relative w-full h-full">
+                          <img
+                            src={imagePreview}
+                            alt="New caterer preview"
+                            className="w-full h-full object-cover rounded-md"
+                          />
+                          <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                removeNewImage();
+                              }}
+                              disabled={submitting}
+                              className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md disabled:opacity-50 flex items-center"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center pt-7">
+                          {existingImageUrl ? (
+                            <div className="relative w-16 h-16 mb-2">
+                              <img
+                                src={existingImageUrl}
+                                alt="Current caterer"
+                                className="w-full h-full object-cover rounded-md border border-gray-300"
+                              />
+                              <div className="absolute -top-1 -right-1 bg-orange-500 text-white rounded-full p-1">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                                </svg>
+                              </div>
+                            </div>
+                          ) : (
+                            <UserIcon className="w-12 h-12 text-gray-400" />
+                          )}
+                          <p className="pt-1 text-sm text-gray-500 text-center px-4">
+                            {form.card_image
+                              ? form.card_image.name
+                              : existingImageUrl
+                                ? "Choose new image to replace current one"
+                                : "Choose caterer image or drag and drop"
+                            }
+                          </p>
+                        </div>
+                      )}
                       <input
                         type="file"
                         accept="image/*"
@@ -285,28 +311,6 @@ const EditCatererDialog = ({ isOpen, onClose, caterer, onCatererUpdated }) => {
                       />
                     </label>
                   </div>
-
-                  {/* New Image Preview */}
-                  {imagePreview && (
-                    <div className="mt-3">
-                      <p className="text-sm text-gray-500 mb-2">New image preview:</p>
-                      <div className="relative inline-block">
-                        <img
-                          src={imagePreview}
-                          alt="New caterer preview"
-                          className="w-32 h-32 object-cover rounded-md border border-gray-300"
-                        />
-                        <button
-                          type="button"
-                          onClick={removeNewImage}
-                          disabled={submitting}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-md disabled:opacity-50"
-                        >
-                          <XMarkIcon className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
                   
                   {errors.card_image && (
                     <p className="text-red-500 text-xs mt-1">{errors.card_image}</p>
