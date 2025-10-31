@@ -1,11 +1,5 @@
 // Caterer Constants
 import {
-  BanknotesIcon,
-  DevicePhoneMobileIcon,
-  BuildingLibraryIcon,
-  DocumentCheckIcon,
-  CreditCardIcon,
-  EllipsisHorizontalIcon,
   CheckCircleIcon,
   ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
@@ -13,34 +7,34 @@ import {
 // Unit options for products
 export const UNIT_OPTIONS = [
   { value: 'kg', label: 'Kilogram (kg)' },
-  { value: 'g', label: 'Gram (g)' },
-  { value: 'l', label: 'Liter (l)' },
-  { value: 'ml', label: 'Milliliter (ml)' },
-  { value: 'piece', label: 'Piece' },
-  { value: 'packet', label: 'Packet' },
+  { value: 'gram', label: 'Gram (g)' },
+  { value: 'pound', label: 'Pound (lb)' },
+  { value: 'pack', label: 'Pack' },
+  { value: 'litre', label: 'Litre (L)' },
   { value: 'box', label: 'Box' },
-  { value: 'dozen', label: 'Dozen' },
   { value: 'bottle', label: 'Bottle' },
-  { value: 'can', label: 'Can' },
-  { value: 'carton', label: 'Carton' }
+  { value: 'cane', label: 'Cane' },
+  { value: 'packet', label: 'Packet' },
+  { value: 'pouch', label: 'Pouch' },
+  { value: 'bag', label: 'Bag' }
 ];
 
 // Payment options for caterer sales
 export const PAYMENT_OPTIONS = [
   { value: 'full', label: 'Full Payment' },
-  { value: 'partial', label: 'Partial Payment' },
-  { value: 'advance', label: 'Advance Payment' },
-  { value: 'custom', label: 'Custom Amount' }
+  { value: 'half', label: 'Half Payment' },
+  { value: 'custom', label: 'Custom Amount' },
+  { value: 'later', label: 'Pay Later' }
 ];
 
 // Payment methods for caterer sales
 export const PAYMENT_METHODS = [
-  { value: 'cash', label: 'Cash', icon: BanknotesIcon },
-  { value: 'upi', label: 'UPI', icon: DevicePhoneMobileIcon },
-  { value: 'bank', label: 'Bank Transfer', icon: BuildingLibraryIcon },
-  { value: 'check', label: 'Cheque', icon: DocumentCheckIcon },
-  { value: 'credit', label: 'Credit', icon: CreditCardIcon },
-  { value: 'other', label: 'Other', icon: EllipsisHorizontalIcon }
+  { value: 'cash', label: 'Cash' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'bank', label: 'Bank Transfer' },
+  { value: 'check', label: 'Check' },
+  { value: 'credit', label: 'Credit Card' },
+  { value: 'other', label: 'Other' }
 ];
 
 // Charge types for additional charges
@@ -153,16 +147,6 @@ export const STATUS_MAPPING = {
   }
 };
 
-// Payment method icons mapping
-export const PAYMENT_ICONS = {
-  cash: BanknotesIcon,
-  upi: DevicePhoneMobileIcon,
-  bank: BuildingLibraryIcon,
-  check: DocumentCheckIcon,
-  credit: CreditCardIcon,
-  other: EllipsisHorizontalIcon
-};
-
 // File upload constants
 export const FILE_UPLOAD = {
   ACCEPT: 'image/*',
@@ -238,7 +222,6 @@ export const CATERER_CONSTANTS = {
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
   STATUS_MAPPING,
-  PAYMENT_ICONS,
   FILE_UPLOAD,
   DATE_FORMATS,
   NUMBER_FORMATTING,
