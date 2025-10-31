@@ -80,7 +80,13 @@ const CatererCard = ({ caterer, onEdit, onDelete, onCatererUpdated }) => {
       onDelete && await onDelete(caterer);
     } catch (error) {
       console.error('Delete error:', error);
-      showError(error.message || 'Failed to delete caterer');
+      
+      // Handle foreign key constraint violation specifically
+      if (error.error_type === 'foreign_key_constraint') {
+        showError('Cannot delete caterer because it has associated sales records. Please delete all sales records for this caterer first.');
+      } else {
+        showError(error.message || 'Failed to delete caterer');
+      }
     } finally {
       setLoading(false);
     }

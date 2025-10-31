@@ -531,11 +531,21 @@ const deleteCaterer = async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error deleting caterer:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to delete caterer', 
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    
+    // Handle foreign key constraint violation specifically
+    if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+      res.status(409).json({
+        success: false,
+        message: 'Cannot delete caterer because it has associated sales records. Please delete all sales records for this caterer first.',
+        error_type: 'foreign_key_constraint'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete caterer',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
   }
 };
 

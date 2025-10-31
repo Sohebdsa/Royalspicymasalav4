@@ -18,6 +18,16 @@ import {
   CalculatorIcon
 } from '@heroicons/react/24/outline';
 import { useToast } from '../../contexts/ToastContext';
+import {
+  UNIT_OPTIONS,
+  PAYMENT_OPTIONS,
+  PAYMENT_METHODS,
+  IMAGE_VALIDATION,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+  API_ENDPOINTS,
+  FILE_UPLOAD
+} from './caterersConstants';
 
 const CatererSellComponent = () => {
   const navigate = useNavigate();
@@ -122,7 +132,7 @@ const CatererSellComponent = () => {
 
         // Get next bill number using direct fetch (fallback if API service fails)
         try {
-          const billResponse = await fetch('http://localhost:5000/api/caterer-sales/next-bill-number');
+          const billResponse = await fetch(`${API_ENDPOINTS.CATERER_SALES_NEXT_BILL_NUMBER}`);
           if (billResponse.ok) {
             const billData = await billResponse.json();
             if (billData.success) {
@@ -163,35 +173,10 @@ const CatererSellComponent = () => {
     fetchData();
   }, [catererId]);
 
-  const unitOptions = [
-    { value: 'kg', label: 'Kilogram (kg)' },
-    { value: 'gram', label: 'Gram (g)' },
-    { value: 'pound', label: 'Pound (lb)' },
-    { value: 'pack', label: 'Pack' },
-    { value: 'litre', label: 'Litre (L)' },
-    { value: 'box', label: 'Box' },
-    { value: 'bottle', label: 'Bottle' },
-    { value: 'cane', label: 'Cane' },
-    { value: 'packet', label: 'Packet' },
-    { value: 'pouch', label: 'Pouch' },
-    { value: 'bag', label: 'Bag' }
-  ];
-
-  const paymentOptions = [
-    { value: 'full', label: 'Full Payment' },
-    { value: 'half', label: 'Half Payment' },
-    { value: 'custom', label: 'Custom Amount' },
-    { value: 'later', label: 'Pay Later' }
-  ];
-
-  const paymentMethods = [
-    { value: 'cash', label: 'Cash' },
-    { value: 'upi', label: 'UPI' },
-    { value: 'bank', label: 'Bank Transfer' },
-    { value: 'check', label: 'Check' },
-    { value: 'credit', label: 'Credit Card' },
-    { value: 'other', label: 'Other' }
-  ];
+  // Use imported constants
+  const unitOptions = UNIT_OPTIONS;
+  const paymentOptions = PAYMENT_OPTIONS;
+  const paymentMethods = PAYMENT_METHODS;
 
   const handleCatererChange = (e) => {
     const catererId = e.target.value;
@@ -255,8 +240,14 @@ const CatererSellComponent = () => {
   const handleReceiptImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        showError('Image size should be less than 5MB');
+      // Use constants for validation
+      if (!IMAGE_VALIDATION.ALLOWED_TYPES.includes(file.type)) {
+        showError(ERROR_MESSAGES.VALIDATION.INVALID_FILE_TYPE);
+        return;
+      }
+
+      if (file.size > IMAGE_VALIDATION.MAX_SIZE) {
+        showError(ERROR_MESSAGES.VALIDATION.FILE_TOO_LARGE);
         return;
       }
 
@@ -595,7 +586,7 @@ const CatererSellComponent = () => {
           const data = await catererSalesService.createSale(salePayload);
 
           if (data.success) {
-            showSuccess('Sale completed successfully!');
+            showSuccess(SUCCESS_MESSAGES.SALE.CREATED);
             navigate('/caterers');
           } else {
             showError(data.message || 'Failed to complete sale');
@@ -767,13 +758,50 @@ const CatererSellComponent = () => {
                   Caterer Details
                 </label>
                 <div className="p-3 border border-gray-300 rounded-md bg-gray-50">
-                  <div className="space-y-1">
-                    <p className="font-medium text-gray-900">{sellData.caterer_name}</p>
-                    <p className="text-sm text-gray-600">Contact: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.contact_person || ''}</p>
-                    <p className="text-sm text-gray-600">Phone: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.phone_number || ''}</p>
-                    {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.email && (
-                      <p className="text-sm text-gray-600">Email: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.email}</p>
-                    )}
+                  <div className="flex items-start space-x-4">
+                    {/* Caterer Image */}
+                    <div className="flex-shrink-0">
+                      <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                        {(() => {
+                          const caterer = caterers.find(c => c.id === parseInt(sellData.caterer_id));
+                          const imageUrl = caterer?.card_image_url ||
+                                          (caterer?.card_image ? `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/images/${caterer.card_image}` : null);
+                          
+                          if (imageUrl) {
+                            return (
+                              <img
+                                src={imageUrl}
+                                alt={caterer?.caterer_name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.onerror = null;
+                                  e.target.src = '';
+                                }}
+                                loading="lazy"
+                              />
+                            );
+                          }
+                          return (
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-200">
+                              <UserIcon className="h-6 w-6 text-orange-400 mb-1" />
+                              <span className="text-xs text-orange-600">No Image</span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                    
+                    {/* Caterer Information */}
+                    <div className="flex-1 min-w-0">
+                      <div className="space-y-1">
+                        <p className="font-medium text-gray-900 truncate">{sellData.caterer_name}</p>
+                        <p className="text-sm text-gray-600">Contact: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.contact_person || ''}</p>
+                        <p className="text-sm text-gray-600">Phone: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.phone_number || ''}</p>
+                        {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.email && (
+                          <p className="text-sm text-gray-600">Email: {caterers.find(c => c.id === parseInt(sellData.caterer_id))?.email}</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1423,14 +1451,14 @@ const CatererSellComponent = () => {
                       )}
                       <input
                         type="file"
-                        accept="image/*"
+                        accept={FILE_UPLOAD.ACCEPT}
                         onChange={handleReceiptImageChange}
                         className="opacity-0"
                       />
                     </label>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Supported formats: JPEG, PNG, GIF, WebP (Max 5MB)
+                    Supported formats: {IMAGE_VALIDATION.ALLOWED_TYPES.join(', ')} (Max {IMAGE_VALIDATION.MAX_SIZE_TEXT})
                   </p>
                 </div>
               </div>
