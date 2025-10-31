@@ -1,6 +1,6 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
-const { initializeCaterers } = require('../caterers/catererDatabase.cjs');
+const { initializeDatabase: initializeCaterersDatabase } = require('../caterers/caterer_Db_init/catererDatabase.cjs');
 
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
@@ -63,10 +63,7 @@ const initializeDatabase = async () => {
 
     connection.release();
     // Initialize caterers table after suppliers
-    await initializeCaterers(pool);
-    // Initialize caterer sales tables
-    const { initializeCatererSalesDatabase } = require('../caterers/catererSalesDatabase.cjs');
-    await initializeCatererSalesDatabase();
+    await initializeCaterersDatabase();
     console.log('✅ Database tables initialized successfully!');
     return true;
   } catch (error) {

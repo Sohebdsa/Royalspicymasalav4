@@ -16,7 +16,11 @@ const {
 // Configure multer for receipt image uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'server/caterer-orders/images/reciept/');
+    const receiptsDir = path.join(__dirname, 'images', 'reciept');
+    if (!require('fs').existsSync(receiptsDir)) {
+      require('fs').mkdirSync(receiptsDir, { recursive: true });
+    }
+    cb(null, receiptsDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
