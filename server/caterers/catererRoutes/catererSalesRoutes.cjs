@@ -68,7 +68,7 @@ const validateSalesData = (req, res, next) => {
       });
     }
 
-    const required = ['caterer_id', 'bill_number', 'sell_date', 'grand_total'];
+    const required = ['caterer_id', 'sell_date', 'grand_total'];
     const missing = required.filter(field => !req.body[field]);
     
     if (missing.length > 0) {
@@ -124,14 +124,50 @@ router.post('/create',
       const saleData = req.body;
       const timestamp = new Date().toISOString();
       
-      // Normalize and process data
-      saleData.bill_number = normBill(saleData.bill_number);
+      // Generate unique bill number if not provided or if it already exists
+      let billNumber = normBill(saleData.bill_number);
+      if (!billNumber) {
+        // Get next available bill number
+        const [result] = await connection.execute(
+          `SELECT bill_number FROM caterer_sales ORDER BY id DESC LIMIT 1`
+        );
+        let nextBillNumber = '#0001';
+        if (result.length > 0) {
+          const lastBillNumber = result[0].bill_number;
+          const numberPart = parseInt(lastBillNumber.replace('#', ''));
+          const nextNumber = numberPart + 1;
+          nextBillNumber = `#${String(nextNumber).padStart(4, '0')}`;
+        }
+        billNumber = nextBillNumber;
+      } else {
+        // Check if the provided bill number already exists
+        const [existingBill] = await connection.execute(
+          'SELECT id FROM caterer_sales WHERE bill_number = ?',
+          [billNumber]
+        );
+        if (existingBill.length > 0) {
+          // Bill number exists, generate a new one
+          const [result] = await connection.execute(
+            `SELECT bill_number FROM caterer_sales ORDER BY id DESC LIMIT 1`
+          );
+          let nextBillNumber = '#0001';
+          if (result.length > 0) {
+            const lastBillNumber = result[0].bill_number;
+            const numberPart = parseInt(lastBillNumber.replace('#', ''));
+            const nextNumber = numberPart + 1;
+            nextBillNumber = `#${String(nextNumber).padStart(4, '0')}`;
+          }
+          billNumber = nextBillNumber;
+        }
+      }
+      
+      saleData.bill_number = billNumber;
       const normalizedMethod = methodMap[String(saleData.payment_method || '').toLowerCase()] || 'cash';
       const derivedPayAmount = derivePaymentAmount(saleData.payment_option, saleData.grand_total, saleData.payment_amount);
 
       const remainingAfterDerived = Math.max(0, +(Number(saleData.grand_total) - Number(derivedPayAmount)).toFixed(2));
       let initialStatus = 'pending';
-      if (remainingAfterDerived === 0 && Number(derivedPayAmount) > 0) initialStatus = 'paid';
+      if (remainingAfterDerived === 0) initialStatus = 'paid';
       else if (Number(derivedPayAmount) > 0) initialStatus = 'partial';
       
       console.log('📊 Processing sale data:', {
@@ -337,7 +373,7 @@ router.post('/create',
       const gt = Number(saleData.grand_total);
       const remaining = Math.max(0, +(gt - Number(total_paid)).toFixed(2));
       let finalStatus = 'pending';
-      if (remaining === 0 && Number(total_paid) > 0) finalStatus = 'paid';
+      if (remaining === 0) finalStatus = 'paid';
       else if (Number(total_paid) > 0) finalStatus = 'partial';
       
       // Update payment status

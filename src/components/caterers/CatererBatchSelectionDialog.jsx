@@ -203,7 +203,7 @@ export default function CatererBatchSelectionDialog({
   return (
     <Dialog open={isOpen} onOpenChange={open => !open && handleCancel()}>
       <DialogContent className="max-w-4xl w-[90vw] max-h-[80vh] flex flex-col">
-        <DialogHeader className="p-6 pb-4 border-b">
+        <DialogHeader className="p-6 pb-4 shadow-md">
           <DialogTitle className="flex items-center gap-3 text-xl">
             <div className="p-2 bg-orange-100 rounded-lg">
               <svg className="h-6 w-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -386,7 +386,7 @@ export default function CatererBatchSelectionDialog({
           </div>
         </div>
 
-        <div className="flex justify-end items-center p-6 pt-4 border-t bg-gray-50">
+        <div className="flex justify-end items-center p-6 pt-4  bg-gray-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
           <Button variant="outline" onClick={handleCancel}>Cancel</Button>
           <Button
             onClick={handleSave}

@@ -23,6 +23,7 @@ import {
   DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
 import PaymentDialog from '../suppliers/PaymentDialog';
+import CatererBillCardModal from './CatererBillCardModal';
 import { useToast } from '../../contexts/ToastContext';
 
 // New: base constants and URL normalizer
@@ -63,7 +64,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receipts, setReceipts] = useState([]);
-  const [currentReceiptIndex, setCurrentReceiptIndex] = useState(0);
 
   // Derived totals
   const grandTotal = useMemo(() => parseFloat(bill?.grand_total || 0), [bill]);
@@ -94,8 +94,11 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const getStatusPill = (status) => {
     let actualStatus = status;
     if (!status || status === 'unknown') {
+      // If pending amount is 0 or negative, it's fully paid
       if (pendingAmount <= 0) actualStatus = 'paid';
-      else if (totalPaid > 0) actualStatus = 'partial';
+      // If some amount has been paid but not full, it's partial
+      else if (totalPaid > 0 && pendingAmount > 0) actualStatus = 'partial';
+      // If no payments made yet, it's pending
       else actualStatus = 'pending';
     }
 
@@ -115,7 +118,8 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       grandTotal,
       totalPaid,
       pendingAmount,
-      isFullyPaid: pendingAmount <= 0
+      isFullyPaid: pendingAmount <= 0,
+      logicApplied: !status || status === 'unknown'
     });
 
     return (
@@ -162,14 +166,12 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const openReceipts = (paymentReceipts) => {
     if (Array.isArray(paymentReceipts) && paymentReceipts.length > 0) {
       setReceipts(paymentReceipts);
-      setCurrentReceiptIndex(0);
       setShowReceiptModal(true);
     }
   };
 
   const openSingleReceipt = (url, title) => {
     setReceipts([{ url, title }]);
-    setCurrentReceiptIndex(0);
     setShowReceiptModal(true);
   };
 
@@ -592,89 +594,11 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       />
 
       {/* Receipt Modal */}
-      {showReceiptModal && receipts.length > 0 && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowReceiptModal(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <PhotoIcon className="h-5 w-5 mr-2" />
-                {receipts[currentReceiptIndex]?.title || 'Payment Receipt'}
-              </h2>
-              <div className="flex items-center gap-2">
-                {receipts.length > 1 && (
-                  <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentReceiptIndex(prev => (prev > 0 ? prev - 1 : receipts.length - 1));
-                      }}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 rounded disabled:opacity-50"
-                      disabled={receipts.length <= 1}
-                      title="Previous receipt"
-                    >
-                      <ChevronLeftIcon className="h-5 w-5" />
-                    </button>
-                    <span className="text-sm text-gray-600">
-                      {currentReceiptIndex + 1} / {receipts.length}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentReceiptIndex(prev => (prev < receipts.length - 1 ? prev + 1 : 0));
-                      }}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 rounded disabled:opacity-50"
-                      disabled={receipts.length <= 1}
-                      title="Next receipt"
-                    >
-                      <ChevronRightIcon className="h-5 w-5" />
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setShowReceiptModal(false)}
-                  className="text-gray-500 hover:text-gray-700 rounded p-1"
-                  title="Close"
-                >
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 max-h-[80vh] overflow-auto">
-              {receipts[currentReceiptIndex]?.url ? (
-                <div className="space-y-4">
-                  <img
-                    src={receipts[currentReceiptIndex].url}
-                    alt={receipts[currentReceiptIndex]?.title || 'Payment Receipt'}
-                    className="mx-auto max-h-[72vh] rounded border border-gray-200 object-contain"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.parentElement.innerHTML = `
-                        <div class="text-center py-12">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M3 3h18v18H3z"/></svg>
-                          <p class="text-gray-600">Receipt image could not be loaded</p>
-                        </div>
-                      `;
-                    }}
-                  />
-                  {receipts.length > 1 && (
-                    <div className="text-center">
-                      <p className="text-sm text-gray-600">
-                        Receipt {currentReceiptIndex + 1} of {receipts.length}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <PhotoIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">No receipt image available</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <CatererBillCardModal
+        receipts={receipts}
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+      />
     </>
   );
 };
