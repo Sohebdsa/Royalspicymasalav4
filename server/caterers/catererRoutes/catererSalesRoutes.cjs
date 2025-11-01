@@ -373,8 +373,16 @@ router.post('/create',
       const gt = Number(saleData.grand_total);
       const remaining = Math.max(0, +(gt - Number(total_paid)).toFixed(2));
       let finalStatus = 'pending';
-      if (remaining === 0) finalStatus = 'paid';
+      if (remaining === 0 && Number(total_paid) > 0) finalStatus = 'paid';
       else if (Number(total_paid) > 0) finalStatus = 'partial';
+      
+      console.log('📊 Final payment status calculation:', {
+        grand_total: gt,
+        total_paid: total_paid,
+        remaining: remaining,
+        finalStatus: finalStatus,
+        logic: remaining === 0 && Number(total_paid) > 0 ? 'paid' : (Number(total_paid) > 0 ? 'partial' : 'pending')
+      });
       
       // Update payment status
       await connection.execute(

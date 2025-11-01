@@ -92,43 +92,48 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   }, []);
 
   const getStatusPill = (status) => {
-    let actualStatus = status;
-    if (!status || status === 'unknown') {
-      // If pending amount is 0 or negative, it's fully paid
-      if (pendingAmount <= 0) actualStatus = 'paid';
-      // If some amount has been paid but not full, it's partial
-      else if (totalPaid > 0 && pendingAmount > 0) actualStatus = 'partial';
-      // If no payments made yet, it's pending
-      else actualStatus = 'pending';
-    }
+  // Always calculate actual status based on payment amounts
+  let actualStatus = status;
+  
+  // Recalculate based on actual amounts (takes precedence over stored status)
+  if (pendingAmount <= 0) {
+    actualStatus = 'paid';
+  } else if (totalPaid <= 0) {
+    actualStatus = 'pending';
+  } else if (totalPaid > 0 && pendingAmount > 0) {
+    actualStatus = 'partial';
+  }
 
-    const map = {
-      paid: 'bg-green-100 text-green-800 border-green-200',
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      partial: 'bg-blue-100 text-blue-800 border-blue-200',
-      overdue: 'bg-red-100 text-red-800 border-red-200',
-      cancelled: 'bg-red-100 text-red-800 border-red-200'
-    };
-    const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
-    const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
-
-    console.log('Status calculation:', {
-      originalStatus: status,
-      calculatedStatus: actualStatus,
-      grandTotal,
-      totalPaid,
-      pendingAmount,
-      isFullyPaid: pendingAmount <= 0,
-      logicApplied: !status || status === 'unknown'
-    });
-
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-        <Icon className="h-4 w-4" />
-        <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
-      </span>
-    );
+  const map = {
+    paid: 'bg-green-100 text-green-800 border-green-200',
+    pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    partial: 'bg-blue-100 text-blue-800 border-blue-200',
+    overdue: 'bg-red-100 text-red-800 border-red-200',
+    cancelled: 'bg-red-100 text-red-800 border-red-200'
   };
+  const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
+  const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+  console.log('Status calculation:', {
+    originalStatus: status,
+    calculatedStatus: actualStatus,
+    grandTotal,
+    totalPaid,
+    pendingAmount,
+    isFullyPaid: pendingAmount <= 0,
+    recalculated: true
+  });
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      <Icon className="h-4 w-4" />
+      <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
+    </span>
+  );
+};
+
+
+
 
   const getPaymentIcon = (method) => {
     switch (method) {
