@@ -145,7 +145,7 @@ const AddCatererDialog = ({ isOpen, onClose, onCatererAdded }) => {
         throw new Error(data.message || data.errors?.join(', ') || 'Failed to add caterer');
       }
 
-      showSuccess('Caterer added successfully');
+      // showSuccess('Caterer added successfully');
       onCatererAdded(data.caterer);
       setForm(initialState);
       setImagePreview(null);

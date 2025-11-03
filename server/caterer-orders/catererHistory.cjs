@@ -371,83 +371,168 @@ const getCatererHistory = async (req, res) => {
       : '';
 
 
-    // UPDATED: Get total count for pagination with JOIN to caterers table
-    const countQuery = `
-      SELECT COUNT(DISTINCT cb.id) as total
-      FROM caterer_bills cb
-      LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
-      LEFT JOIN caterers c ON cb.caterer_id = c.id
-      ${whereClause}
-    `;
-
-
-    console.log('📊 Count query:', countQuery);
-    console.log('📊 Count params:', queryParams);
-
-
-    const [countResult] = await connection.execute(countQuery, queryParams);
-    const total = countResult[0].total;
-
-
     // Calculate pagination
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 20;
     const offset = (pageNum - 1) * limitNum;
 
+    let bills = [];
+    let total = 0;
 
-    // UPDATED: Get caterer bills with order details, items, payment info AND caterer details
-    let billsQuery;
-    let bills;
+    // First try to get bills from caterer_bills table
+    try {
+      const countQuery = `
+        SELECT COUNT(DISTINCT cb.id) as total
+        FROM caterer_bills cb
+        LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
+        LEFT JOIN caterers c ON cb.caterer_id = c.id
+        ${whereClause}
+      `;
 
+      console.log('📊 Count query for caterer_bills:', countQuery);
+      console.log('📊 Count params:', queryParams);
 
-    // Always use prepared statements for security
-    billsQuery = `
-      SELECT
-        cb.*,
-        co.order_number,
-        co.delivered_at,
-        co.created_at as order_created_at,
-        c.caterer_name,
-        c.contact_person,
-        c.phone_number as caterer_phone,
-        c.email as caterer_email,
-        c.address as caterer_address,
-        c.gst_number
-      FROM caterer_bills cb
-      LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
-      LEFT JOIN caterers c ON cb.caterer_id = c.id
-      ${whereClause}
-      ORDER BY cb.created_at DESC, cb.bill_date DESC
-      LIMIT ${limitNum} OFFSET ${offset}
-    `;
-    
-    const finalParams = [...queryParams];
-    console.log('📊 Final query:', billsQuery);
-    console.log('📊 Final params:', finalParams);
-    [bills] = await connection.execute(billsQuery, finalParams);
+      const [countResult] = await connection.execute(countQuery, queryParams);
+      total = countResult[0].total;
 
+      if (total > 0) {
+        // Get bills from caterer_bills
+        const billsQuery = `
+          SELECT
+            cb.*,
+            co.order_number,
+            co.delivered_at,
+            co.created_at as order_created_at,
+            c.caterer_name,
+            c.contact_person,
+            c.phone_number as caterer_phone,
+            c.email as caterer_email,
+            c.address as caterer_address,
+            c.gst_number
+          FROM caterer_bills cb
+          LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
+          LEFT JOIN caterers c ON cb.caterer_id = c.id
+          ${whereClause}
+          ORDER BY cb.created_at DESC, cb.bill_date DESC
+          LIMIT ${limitNum} OFFSET ${offset}
+        `;
+        
+        const finalParams = [...queryParams];
+        console.log('📊 Bills query for caterer_bills:', billsQuery);
+        console.log('📊 Final params:', finalParams);
+        
+        [bills] = await connection.execute(billsQuery, finalParams);
+        console.log(`📊 Found ${bills.length} bills in caterer_bills`);
 
-    console.log('📊 Raw bills result:', bills.length);
-
-
-    // Debug: Log first bill data
-    if (bills.length > 0) {
-      console.log('🔍 First bill data:', {
-        id: bills[0].id,
-        bill_number: bills[0].bill_number,
-        total_amount: bills[0].total_amount,
-        subtotal: bills[0].subtotal,
-        pending_amount: bills[0].pending_amount,
-        order_number: bills[0].order_number,
-        caterer_order_id: bills[0].caterer_order_id,
-        caterer_name: bills[0].caterer_name,
-        caterer_phone: bills[0].caterer_phone
-      });
-    }
-
-
-    // If no bills found, return empty result
-    if (!bills || bills.length === 0) {
+        // Debug: Log first bill data
+        if (bills.length > 0) {
+          console.log('🔍 First bill data from caterer_bills:', {
+            id: bills[0].id,
+            bill_number: bills[0].bill_number,
+            total_amount: bills[0].total_amount,
+            subtotal: bills[0].subtotal,
+            pending_amount: bills[0].pending_amount,
+            order_number: bills[0].order_number,
+            caterer_order_id: bills[0].caterer_order_id,
+            caterer_name: bills[0].caterer_name,
+            caterer_phone: bills[0].caterer_phone
+          });
+        }
+      } else {
+        // No bills found in caterer_bills, try caterer_sales table
+        console.log('🔍 No bills found in caterer_bills, checking caterer_sales table...');
+        
+        // Build caterer_sales query with similar conditions
+        let salesWhereConditions = [...whereConditions];
+        let salesQueryParams = [...queryParams];
+        
+        // Replace caterer_bills references with caterer_sales
+        const salesWhereClause = salesWhereConditions.length > 0
+          ? salesWhereConditions.map(cond =>
+              cond.replace('cb.', 'cs.').replace('caterer_bills', 'caterer_sales')
+            ).join(' AND ')
+          : '';
+        
+        // Count query for caterer_sales
+        const salesCountQuery = `
+          SELECT COUNT(DISTINCT cs.id) as total
+          FROM caterer_sales cs
+          LEFT JOIN caterers c ON cs.caterer_id = c.id
+          ${salesWhereClause ? 'WHERE ' + salesWhereClause : ''}
+        `;
+        
+        const [salesCountResult] = await connection.execute(salesCountQuery, salesQueryParams);
+        const salesTotal = salesCountResult[0].total;
+        
+        if (salesTotal > 0) {
+          console.log(`📊 Found ${salesTotal} sales records, converting to bill format...`);
+          total = salesTotal;
+          
+          // Get sales data and convert to bill format
+          const salesQuery = `
+            SELECT
+              cs.id as bill_id,
+              cs.bill_number,
+              cs.sell_date as bill_date,
+              cs.subtotal,
+              cs.total_gst,
+              cs.items_total,
+              cs.other_charges_total,
+              cs.grand_total as total_amount,
+              cs.payment_status as status,
+              cs.notes,
+              cs.created_at,
+              cs.updated_at,
+              cs.caterer_id,
+              c.caterer_name,
+              c.contact_person,
+              c.phone_number as caterer_phone,
+              c.email as caterer_email,
+              c.address as caterer_address,
+              c.gst_number
+            FROM caterer_sales cs
+            LEFT JOIN caterers c ON cs.caterer_id = c.id
+            ${salesWhereClause ? 'WHERE ' + salesWhereClause : ''}
+            ORDER BY cs.created_at DESC
+            LIMIT ${limitNum} OFFSET ${offset}
+          `;
+          
+          const [salesData] = await connection.execute(salesQuery, salesQueryParams);
+          
+          // Convert sales data to bill format
+          bills = salesData.map(sale => ({
+            id: sale.bill_id,
+            bill_number: sale.bill_number,
+            bill_date: sale.bill_date,
+            subtotal: sale.subtotal,
+            total_gst: sale.total_gst,
+            items_total: sale.items_total,
+            other_charges_total: sale.other_charges_total,
+            total_amount: sale.total_amount,
+            paid_amount: 0, // No payment tracking in caterer_sales
+            pending_amount: sale.total_amount, // Full amount is pending
+            status: sale.status,
+            notes: sale.notes,
+            created_at: sale.created_at,
+            updated_at: sale.updated_at,
+            caterer_id: sale.caterer_id,
+            caterer_name: sale.caterer_name,
+            contact_person: sale.contact_person,
+            caterer_phone: sale.caterer_phone,
+            caterer_email: sale.caterer_email,
+            caterer_address: sale.caterer_address,
+            gst_number: sale.gst_number,
+            order_number: sale.bill_number, // Use bill_number as order_number
+            items: [], // No items data in caterer_sales
+            payment_history: [] // No payment history in caterer_sales
+          }));
+          
+          console.log(`✅ Converted ${bills.length} sales records to bill format`);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching bills:', error);
+      // Return empty result on error
       connection.release();
       return res.json({
         success: true,

@@ -22,35 +22,33 @@ import {
   CubeIcon,
   DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
-import PaymentDialog from '../suppliers/PaymentDialog';
+import CatererBillPaymentCollectionDialog from './CatererBillPaymentCollectionDialog';
 import CatererBillCardModal from './CatererBillCardModal';
 import { useToast } from '../../contexts/ToastContext';
 
-// New: base constants and URL normalizer
-const API_BASE = import.meta.env.VITE_API_URL || '';
-const RECEIPTS_BASE = '/caterers/reciept';
+// Base constants and URL normalizer
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const RECEIPTS_BASE = '/caterers/assets/caterer_img/receipts';
 
 const toReceiptUrl = (val) => {
   if (!val) return '';
-  // absolute URL as-is
   if (/^https?:\/\//i.test(val)) return val;
 
-  // already new-base path
+  // Handle new receipt path
   if (val.startsWith(RECEIPTS_BASE)) {
     return API_BASE ? `${API_BASE}${val}` : val;
   }
 
-  // legacy uploads path
-  if (val.startsWith('/uploads/receipts/')) {
+  // Legacy paths
+  if (val.startsWith('/caterers/assets/reciept') || val.startsWith('/uploads/receipts/')) {
     return API_BASE ? `${API_BASE}${val}` : val;
   }
 
-  // bare filename -> mount under new base
+  // Bare filename
   if (!val.startsWith('/')) {
     return API_BASE ? `${API_BASE}${RECEIPTS_BASE}/${val}` : `${RECEIPTS_BASE}/${val}`;
   }
 
-  // any other leading-slash path -> prefix API base if present
   return API_BASE ? `${API_BASE}${val}` : val;
 };
 
@@ -58,28 +56,21 @@ const rupee = (v) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(parseFloat(v || 0));
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
-  const { showError } = useToast();
+  // ✅ FIXED: Correct destructuring of toast functions
+  const { showSuccess, showError, showInfo } = useToast();
+  
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedMix, setExpandedMix] = useState({});
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [selectedBillForPayment, setSelectedBillForPayment] = useState(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receipts, setReceipts] = useState([]);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   // Derived totals
   const grandTotal = useMemo(() => parseFloat(bill?.grand_total || 0), [bill]);
   const totalPaid = useMemo(() => parseFloat(bill?.total_paid || 0), [bill]);
   const pendingAmount = useMemo(() => Math.max(grandTotal - totalPaid, 0), [grandTotal, totalPaid]);
-
-  // Debug logging
-  console.log('CatererBillCard Debug:', {
-    billNumber: bill?.bill_number,
-    grandTotal,
-    totalPaid,
-    pendingAmount,
-    paymentStatus: bill?.payment_status,
-    payments: bill?.payments,
-    receiptImages: bill?.payments?.flatMap(p => p?.receipt_images || [])
-  });
 
   const formatDate = useCallback((d) => {
     if (!d) return 'N/A';
@@ -92,48 +83,35 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   }, []);
 
   const getStatusPill = (status) => {
-  // Always calculate actual status based on payment amounts
-  let actualStatus = status;
-  
-  // Recalculate based on actual amounts (takes precedence over stored status)
-  if (pendingAmount <= 0) {
-    actualStatus = 'paid';
-  } else if (totalPaid <= 0) {
-    actualStatus = 'pending';
-  } else if (totalPaid > 0 && pendingAmount > 0) {
-    actualStatus = 'partial';
-  }
+    // Always calculate actual status based on payment amounts
+    let actualStatus = status;
+    
+    // Recalculate based on actual amounts (takes precedence over stored status)
+    if (pendingAmount <= 0) {
+      actualStatus = 'paid';
+    } else if (totalPaid <= 0) {
+      actualStatus = 'pending';
+    } else if (totalPaid > 0 && pendingAmount > 0) {
+      actualStatus = 'partial';
+    }
 
-  const map = {
-    paid: 'bg-green-100 text-green-800 border-green-200',
-    pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    partial: 'bg-blue-100 text-blue-800 border-blue-200',
-    overdue: 'bg-red-100 text-red-800 border-red-200',
-    cancelled: 'bg-red-100 text-red-800 border-red-200'
+    const map = {
+      paid: 'bg-green-100 text-green-800 border-green-200',
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      partial: 'bg-blue-100 text-blue-800 border-blue-200',
+      overdue: 'bg-red-100 text-red-800 border-red-200',
+      cancelled: 'bg-red-100 text-red-800 border-red-200'
+    };
+    const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
+    const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+        <Icon className="h-4 w-4" />
+        <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
+      </span>
+    );
   };
-  const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
-  const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
-
-  console.log('Status calculation:', {
-    originalStatus: status,
-    calculatedStatus: actualStatus,
-    grandTotal,
-    totalPaid,
-    pendingAmount,
-    isFullyPaid: pendingAmount <= 0,
-    recalculated: true
-  });
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-      <Icon className="h-4 w-4" />
-      <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
-    </span>
-  );
-};
-
-
-
 
   const getPaymentIcon = (method) => {
     switch (method) {
@@ -162,9 +140,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     setExpandedMix((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleCollectPayment = () => setShowPaymentDialog(true);
+  const handleCollectPayment = () => {
+    setSelectedBillForPayment(bill);
+    setShowPaymentDialog(true);
+  };
+
   const handlePaymentSuccess = () => {
     setShowPaymentDialog(false);
+    setSelectedBillForPayment(null);
     onPaymentUpdate?.();
   };
 
@@ -175,16 +158,67 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
+  // ✅ FIXED: Correct usage of toast functions
+  const handlePaymentSubmit = async (formData) => {
+    setIsProcessingPayment(true);
+    try {
+      console.log('Submitting payment...');
+      
+      // Log FormData contents for debugging
+      const formDataEntries = {};
+      formData.forEach((value, key) => {
+        formDataEntries[key] = value instanceof File ? `[File: ${value.name}]` : value;
+      });
+      console.log('FormData contents:', formDataEntries);
+      
+      const response = await fetch(`${API_BASE}/api/caterer-payments/create`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      // Check content type before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const errorText = await response.text();
+        console.error('Non-JSON response:', errorText);
+        throw new Error('Server returned an invalid response');
+      }
+      
+      const result = await response.json();
+      console.log('Payment response:', result);
+      
+      if (!response.ok) {
+        throw new Error(result.error || result.message || `Server error: ${response.status}`);
+      }
+      
+      if (result.success) {
+        showSuccess('Payment recorded successfully'); // ✅ FIXED
+        setShowPaymentDialog(false);
+        setSelectedBillForPayment(null);
+        onPaymentUpdate?.();
+      } else {
+        throw new Error(result.error || result.message || 'Failed to record payment');
+      }
+    } catch (error) {
+      console.error('❌ Payment submission failed:', error);
+      showError(error.message || 'Failed to record payment'); // ✅ FIXED
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
   const openSingleReceipt = (url, title) => {
-    setReceipts([{ url, title }]);
+    const normalizedUrl = toReceiptUrl(url);
+    setReceipts([{ url: normalizedUrl, title }]);
     setShowReceiptModal(true);
   };
 
   const copyBillNumber = async () => {
     try {
       await navigator.clipboard.writeText(bill?.bill_number || '');
-    } catch {
-      showError?.('Failed to copy bill number');
+      showSuccess('Bill number copied to clipboard'); // ✅ FIXED
+    } catch (error) {
+      showError('Failed to copy bill number'); // ✅ FIXED
     }
   };
 
@@ -199,11 +233,18 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   return (
     <>
       <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-        {/* Header */}
-        <button
-          type="button"
+        {/* ✅ FIXED: Changed from button to div to prevent nested button issue */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={toggleBill}
-          className="w-full text-left p-5 hover:bg-gray-50 transition-colors"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleBill();
+            }
+          }}
+          className="w-full text-left p-5 hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
           aria-expanded={isExpanded}
         >
           <div className="flex items-center justify-between">
@@ -218,11 +259,21 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-900">{bill?.bill_number || 'N/A'}</h3>
+                    {/* ✅ FIXED: This button now works correctly since parent is div */}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); copyBillNumber(); }}
-                      className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        copyBillNumber(); 
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.stopPropagation();
+                        }
+                      }}
+                      className="p-1 text-gray-400 hover:text-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       title="Copy bill number"
+                      aria-label={`Copy bill number ${bill?.bill_number}`}
                     >
                       <DocumentDuplicateIcon className="h-4 w-4" />
                     </button>
@@ -242,6 +293,12 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                     <DocumentTextIcon className="h-4 w-4 mr-1" />
                     {bill?.items_count || 0} items
                   </span>
+                  {bill?.caterer_phone && (
+                    <span className="flex items-center">
+                      <DevicePhoneMobileIcon className="h-4 w-4 mr-1" />
+                      {bill.caterer_phone}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -253,7 +310,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               )}
             </div>
           </div>
-        </button>
+        </div>
 
         {/* Body */}
         {isExpanded && (
@@ -454,120 +511,108 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               ) : (
                 <div className="space-y-3">
                   {Array.isArray(bill?.payments) && bill.payments.length > 0 ? (
-                    bill.payments.map((p, index) => {
-                      console.log(`Payment ${index}:`, {
-                        id: p?.id,
-                        payment_method: p?.payment_method,
-                        payment_amount: p?.payment_amount,
-                        receipt_image: p?.receipt_image,
-                        receipt_images: p?.receipt_images,
-                        hasSingleReceipt: !!p?.receipt_image,
-                        hasMultipleReceipts: Array.isArray(p?.receipt_images) && p.receipt_images.length > 0
-                      });
-
-                      return (
-                        <div key={p?.id} className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center text-gray-600">
-                                {getPaymentIcon(p?.payment_method)}
-                                <span className="ml-2 text-sm font-medium capitalize">
-                                  {p?.payment_method || 'other'}
-                                </span>
-                              </div>
-                              <div className="text-lg font-semibold text-green-600">
-                                {rupee(p?.payment_amount || 0)}
-                              </div>
+                    bill.payments.map((p) => (
+                      <div key={p?.id} className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center text-gray-600">
+                              {getPaymentIcon(p?.payment_method)}
+                              <span className="ml-2 text-sm font-medium capitalize">
+                                {p?.payment_method || 'other'}
+                              </span>
                             </div>
-
-                            <div className="flex items-center gap-3">
-                              <div className="text-right text-sm text-gray-600">
-                                <div className="flex items-center">
-                                  <CalendarIcon className="h-4 w-4 mr-1" />
-                                  {formatDate(p?.payment_date)}
-                                </div>
-                                {p?.payment_time && (
-                                  <div className="flex items-center mt-1">
-                                    <ClockIcon className="h-4 w-4 mr-1" />
-                                    {formatTime(p?.payment_time)}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {(() => {
-                                  const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl;
-                                  const hasMultipleReceipts =
-                                    (Array.isArray(p?.receipt_images) && p.receipt_images.length > 0) ||
-                                    (Array.isArray(p?.receipts) && p.receipts.length > 0);
-
-                                  return (
-                                    <>
-                                      {hasSingleReceipt && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const raw = p.receipt_image || p.receipt || p.receiptUrl;
-                                            const normalized = toReceiptUrl(raw);
-                                            openSingleReceipt(
-                                              normalized,
-                                              `Payment Receipt - ${rupee(p?.payment_amount || 0)}`
-                                            );
-                                          }}
-                                          className="p-1.5 text-gray-500 hover:text-gray-700 rounded"
-                                          title="View Payment Receipt"
-                                        >
-                                          <EyeIcon className="h-4 w-4" />
-                                        </button>
-                                      )}
-
-                                      {hasMultipleReceipts && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const receiptArray = p.receipt_images || p.receipts;
-                                            const mapped = receiptArray.map((receipt, i) => ({
-                                              url: toReceiptUrl(receipt),
-                                              title: `Payment Receipt ${i + 1} - ${rupee(p?.payment_amount || 0)}`
-                                            }));
-                                            openReceipts(mapped);
-                                          }}
-                                          className="p-1.5 text-blue-500 hover:text-blue-700 rounded"
-                                          title={`View all ${(p.receipt_images || p.receipts).length} receipts`}
-                                        >
-                                          <DocumentDuplicateIcon className="h-4 w-4" />
-                                        </button>
-                                      )}
-
-                                      {!hasSingleReceipt && !hasMultipleReceipts && (
-                                        <div className="text-xs text-gray-400" title="No receipt found">
-                                          No receipt
-                                        </div>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                              </div>
+                            <div className="text-lg font-semibold text-green-600">
+                              {rupee(p?.payment_amount || 0)}
                             </div>
                           </div>
 
-                          {p?.notes && (
-                            <div className="mt-2 text-sm text-gray-600">
-                              <span className="font-medium">Note:</span> {p?.notes}
+                          <div className="flex items-center gap-3">
+                            <div className="text-right text-sm text-gray-600">
+                              <div className="flex items-center">
+                                <CalendarIcon className="h-4 w-4 mr-1" />
+                                {formatDate(p?.payment_date)}
+                              </div>
+                              {p?.payment_time && (
+                                <div className="flex items-center mt-1">
+                                  <ClockIcon className="h-4 w-4 mr-1" />
+                                  {formatTime(p?.payment_time)}
+                                </div>
+                              )}
                             </div>
-                          )}
 
-                          {Array.isArray(p?.receipt_images) && p.receipt_images.length > 1 && (
-                            <div className="mt-2 text-xs text-blue-600 flex items-center">
-                              <DocumentDuplicateIcon className="h-3 w-3 mr-1" />
-                              {p.receipt_images.length} receipt(s) available
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl;
+                                const hasMultipleReceipts =
+                                  (Array.isArray(p?.receipt_images) && p.receipt_images.length > 0) ||
+                                  (Array.isArray(p?.receipts) && p.receipts.length > 0);
+
+                                return (
+                                  <>
+                                    {hasSingleReceipt && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const raw = p.receipt_image || p.receipt || p.receiptUrl;
+                                          const normalized = toReceiptUrl(raw);
+                                          openSingleReceipt(
+                                            normalized,
+                                            `Payment Receipt - ${rupee(p?.payment_amount || 0)}`
+                                          );
+                                        }}
+                                        className="p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                                        title="View Payment Receipt"
+                                      >
+                                        <EyeIcon className="h-4 w-4" />
+                                      </button>
+                                    )}
+
+                                    {hasMultipleReceipts && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const receiptArray = p.receipt_images || p.receipts;
+                                          const mapped = receiptArray.map((receipt, i) => ({
+                                            url: toReceiptUrl(receipt),
+                                            title: `Payment Receipt ${i + 1} - ${rupee(p?.payment_amount || 0)}`
+                                          }));
+                                          openReceipts(mapped);
+                                        }}
+                                        className="p-1.5 text-blue-500 hover:text-blue-700 rounded"
+                                        title={`View all ${(p.receipt_images || p.receipts).length} receipts`}
+                                      >
+                                        <DocumentDuplicateIcon className="h-4 w-4" />
+                                      </button>
+                                    )}
+
+                                    {!hasSingleReceipt && !hasMultipleReceipts && (
+                                      <div className="text-xs text-gray-400" title="No receipt found">
+                                        No receipt
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
-                          )}
+                          </div>
                         </div>
-                      );
-                    })
+
+                        {p?.notes && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            <span className="font-medium">Note:</span> {p?.notes}
+                          </div>
+                        )}
+
+                        {Array.isArray(p?.receipt_images) && p.receipt_images.length > 1 && (
+                          <div className="mt-2 text-xs text-blue-600 flex items-center">
+                            <DocumentDuplicateIcon className="h-3 w-3 mr-1" />
+                            {p.receipt_images.length} receipt(s) available
+                          </div>
+                        )}
+                      </div>
+                    ))
                   ) : (
                     <div className="text-sm text-gray-500 text-center py-4">No payment records found</div>
                   )}
@@ -591,11 +636,21 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       </div>
 
       {/* Payment Dialog */}
-      <PaymentDialog
+      <CatererBillPaymentCollectionDialog
         isOpen={showPaymentDialog}
         onClose={() => setShowPaymentDialog(false)}
-        bill={bill}
-        onPaymentSuccess={handlePaymentSuccess}
+        onSubmit={handlePaymentSubmit}
+        caterer={{
+          caterer_name: bill.caterer_name,
+          caterer_phone: bill.caterer_phone,
+          phone_number: bill.caterer_phone,
+          phone: bill.caterer_phone,
+          id: bill.caterer_id,
+          contact_person: bill.contact_person
+        }}
+        bills={[bill]}
+        selectedBill={selectedBillForPayment}
+        isLoading={isProcessingPayment}
       />
 
       {/* Receipt Modal */}
