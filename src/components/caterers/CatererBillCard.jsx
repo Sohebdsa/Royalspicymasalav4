@@ -28,7 +28,7 @@ import { useToast } from '../../contexts/ToastContext';
 
 // Base constants and URL normalizer
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const RECEIPTS_BASE = '/caterers/assets/caterer_img/receipts';
+const RECEIPTS_BASE = '/caterers/assets/receipts';
 
 const toReceiptUrl = (val) => {
   if (!val) return '';
@@ -40,7 +40,7 @@ const toReceiptUrl = (val) => {
   }
 
   // Legacy paths
-  if (val.startsWith('/caterers/assets/reciept') || val.startsWith('/uploads/receipts/')) {
+  if (val.startsWith('/caterers/assets/reciepts') || val.startsWith('/caterers/assets/receipts') || val.startsWith('/uploads/receipts/')) {
     return API_BASE ? `${API_BASE}${val}` : val;
   }
 
@@ -542,7 +542,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
 
                             <div className="flex items-center gap-2">
                               {(() => {
-                                const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl;
+                                const hasSingleReceipt = p?.receipt_image || p?.receipt || p?.receiptUrl || p?.receipt_image_url;
                                 const hasMultipleReceipts =
                                   (Array.isArray(p?.receipt_images) && p.receipt_images.length > 0) ||
                                   (Array.isArray(p?.receipts) && p.receipts.length > 0);
@@ -554,7 +554,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          const raw = p.receipt_image || p.receipt || p.receiptUrl;
+                                          const raw = p.receipt_image || p.receipt || p.receiptUrl || p?.receipt_image_url;
                                           const normalized = toReceiptUrl(raw);
                                           openSingleReceipt(
                                             normalized,

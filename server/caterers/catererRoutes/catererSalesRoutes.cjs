@@ -19,12 +19,12 @@ async function saveReceiptImage(receipt) {
   if (!receipt?.data) return null;
   const safeName = Date.now() + '_' + (receipt.filename || 'receipt');
   const ext = path.extname(receipt.filename || '') || '.png';
-  const outDir = path.join(__dirname, '..', '..', '..', 'public', 'uploads', 'receipts');
+  const outDir = path.join(__dirname, '..', 'assets', 'receipts');
   await fs.mkdir(outDir, { recursive: true });
   const filePath = path.join(outDir, safeName + ext);
   const base64 = receipt.data.split(',').pop();
   await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
-  return '/uploads/receipts/' + safeName + ext;
+  return '/caterers/assets/receipts/' + safeName + ext;
 }
 
 function derivePaymentAmount(option, grandTotal, customAmount) {
@@ -774,7 +774,7 @@ router.use('*', (req, res) => {
 // Serve receipt images
 router.get('/receipts/:filename', (req, res) => {
   const filename = req.params.filename;
-  const imagePath = path.join(__dirname, '..', '..', '..', 'public', 'uploads', 'receipts', filename);
+  const imagePath = path.join(__dirname, '..', 'assets', 'receipts', filename);
   
   console.log('📸 Serving receipt image:', imagePath);
   

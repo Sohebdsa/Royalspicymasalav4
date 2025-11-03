@@ -5,14 +5,27 @@ const path = require('path');
 const fs = require('fs/promises');
 const { extension: mimeToExt } = require('mime-types'); // npm i mime-types
 
+const RECEIPTS_DIR = path.join(__dirname, '..', 'assets', 'receipts');
+const RECEIPTS_URL_BASE = '/caterers/assets/receipts';
+
 // Middleware to handle JSON and URL-encoded data
 router.use(express.json());
 router.use(express.urlencoded({ extended: true }));
 
 // Middleware for file uploads (FormData)
 const multer = require('multer');
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, RECEIPTS_DIR);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+
 const upload = multer({
-  dest: 'temp/',
+  storage: storage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
@@ -25,9 +38,6 @@ const upload = multer({
     }
   }
 });
-
-const RECEIPTS_DIR = path.join(__dirname, 'reciept');
-const RECEIPTS_URL_BASE = '/caterers/assets/caterer_img/receipts';
 
 
 const methodMap = {
@@ -46,38 +56,6 @@ function parseDataUrl(dataUrl) {
   const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || '');
   if (!m) return null;
   return { mime: m[1], base64: m[2] };
-}
-
-// Single-extension, new-folder image saver
-async function saveReceiptImage(receipt) {
-  if (!receipt?.data) return null;
-
-  await fs.mkdir(RECEIPTS_DIR, { recursive: true });
-
-  // Clean and parse filename
-  const originalName = path.basename(String(receipt.filename || 'receipt').trim());
-  const nameParts = path.parse(originalName);
-
-  const parsed = parseDataUrl(receipt.data);
-
-  // Decide one extension
-  let finalExt;
-  if (parsed) {
-    const derived = mimeToExt(parsed.mime);
-    finalExt = derived ? '.' + derived.toLowerCase() : (nameParts.ext || '.png');
-  } else {
-    finalExt = nameParts.ext || '.png';
-  }
-
-  const base = nameParts.name || 'receipt';
-  const unique = `${Date.now()}_${base}${finalExt}`;
-
-  const filePath = path.join(RECEIPTS_DIR, unique);
-  const b64 = parsed ? parsed.base64 : (receipt.data.split(',').pop() || receipt.data);
-  await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
-
-  // Store forward-slash URL path in DB
-  return `${RECEIPTS_URL_BASE}/${unique}`;
 }
 
 function derivePaymentAmount(option, grandTotal, customAmount) {

@@ -47,8 +47,8 @@ const createUploadDirectories = () => {
     path.join(__dirname, 'suppliers/images'),
     path.join(__dirname, 'suppliers/receipts'),
     path.join(__dirname, 'caterers/assets/caterer_img'),
-    path.join(__dirname, 'caterer-orders/images/reciept'),
-    path.join(__dirname, 'caterers/payments/reciept'),
+    path.join(__dirname, 'caterers/assets/receipts'),
+    path.join(__dirname, 'caterer-orders/images/receipt'),
   ];
 
   directories.forEach((dir) => {
@@ -95,9 +95,8 @@ app.use('/uploads/assets/receipts', express.static(path.join(__dirname, 'financi
 app.use('/uploads/suppliers', express.static(path.join(__dirname, 'suppliers/images')));
 app.use('/uploads/supplier-receipts', express.static(path.join(__dirname, 'suppliers/receipts')));
 app.use('/images', express.static(path.join(__dirname, 'caterers/assets/caterer_img')));
-app.use('/uploads/caterer-receipts', express.static(path.join(__dirname, 'caterer-orders/images/reciept')));
-app.use('/caterers/assets/reciept', express.static(path.join(__dirname, 'caterers/payments/reciept')));
-app.use('/caterers/assets/caterer_img/receipts', express.static(path.join(__dirname, 'caterers/payments/reciept')));
+app.use('/uploads/caterer-receipts', express.static(path.join(__dirname, 'caterer-orders/images/receipt')));
+app.use('/caterers/assets/receipts', express.static(path.join(__dirname, 'caterers/assets/receipts')));
 
 console.log('🖼️  Static routes configured:');
 console.log('   - Products: /uploads/products');
@@ -107,7 +106,7 @@ console.log('   - Asset Receipts: /uploads/assets/receipts');
 console.log('   - Suppliers: /uploads/suppliers');
 console.log('   - Supplier Receipts: /uploads/supplier-receipts');
 console.log('   - Caterer Images: /images *** (FIXED) ***');
-console.log('   - Caterer Receipts: /uploads/caterer-receipts *** (FIXED) ***');
+console.log('   - Caterer Payment Receipts: /caterers/assets/receipts');
 
 // API routes
 app.use('/api/admin', adminAuthRoutes);
@@ -140,7 +139,7 @@ app.get('/api/health', (req, res) => {
       supplierReceipts: '/uploads/supplier-receipts',
       catererImages: '/images',
       catererReceipts: '/uploads/caterer-receipts',
-      catererPaymentReceipts: '/caterers/assets/caterer_img/receipts',
+      catererPaymentReceipts: '/caterers/assets/receipts',
     },
   });
 });
@@ -272,7 +271,7 @@ const startServer = async () => {
       console.log(`👤 Admin Login: http://localhost:${PORT}/api/admin/admin-login`);
       console.log(`🖼️  Caterer Images: http://localhost:${PORT}/images/`);
       console.log(`🧪 Test Caterer Images: http://localhost:${PORT}/api/test-caterer-images`);
-      console.log(`📋 Caterer Payment Receipts: http://localhost:${PORT}/caterers/assets/caterer_img/receipts/`);
+      console.log(`📋 Caterer Payment Receipts: http://localhost:${PORT}/caterers/assets/receipts/`);
       console.log('==========================================\n');
     });
   } catch (error) {

@@ -249,7 +249,7 @@ export default function CatererBillPaymentCollectionDialog({
                 <Building className="h-8 w-8" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold">Collect Caterer Payment</h2>
+                <h2 className="text-2xl font-bold">Collect Caterer Paymenttttt</h2>
                 <p className="text-green-100 mt-1">
                   {caterer.caterer_name} • {caterer.phone_number || caterer.caterer_phone || caterer.phone || caterer.contact_person || 'No phone number'}
                 </p>

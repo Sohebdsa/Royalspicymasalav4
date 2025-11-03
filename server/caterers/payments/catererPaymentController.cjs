@@ -3,9 +3,8 @@ const fs = require('fs/promises');
 const { extension: mimeToExt } = require('mime-types');
 const db = require('../../config/database.cjs');
 
-// Storage locations
-const RECEIPTS_DIR = path.join(__dirname, 'reciept');
-const RECEIPTS_URL_BASE = '/caterers/assets/caterer_img/receipts';
+const RECEIPTS_DIR = path.join(__dirname, '..', 'assets', 'receipts');
+const RECEIPTS_URL_BASE = '/caterers/assets/receipts';
 
 const methodMap = {
   cash: 'cash',
@@ -14,82 +13,156 @@ const methodMap = {
   bank: 'bank_transfer',
   bank_transfer: 'bank_transfer',
   cheque: 'cheque',
-  check: 'cheque',
   credit: 'credit'
 };
 
 // Parse data URL for base64 images
-function parseDataUrl(dataUrl) {
+  function parseDataUrl(dataUrl) {
   const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || '');
   if (!m) return null;
   return { mime: m[1], base64: m[2] };
 }
 
+
 // Save receipt from base64 data URL (legacy support)
 async function saveReceiptImage(receipt) {
-  if (!receipt?.data) return null;
+  if (!receipt?.data) {
+    console.error('❌ Invalid receipt data for base64 save:', {
+      receipt: !!receipt,
+      hasData: !!(receipt && receipt.data),
+      dataLength: receipt?.data?.length
+    });
+    return null;
+  }
 
   try {
+    console.log('🔧 Creating receipts directory if needed...');
     await fs.mkdir(RECEIPTS_DIR, { recursive: true });
+    console.log('✅ Receipts directory ready:', RECEIPTS_DIR);
 
     const originalName = path.basename(String(receipt.filename || 'receipt').trim());
     const nameParts = path.parse(originalName);
+    console.log('📝 Processing receipt filename:', { originalName, nameParts });
 
     const parsed = parseDataUrl(receipt.data);
+    console.log('🔍 Parsed data URL:', {
+      hasParsed: !!parsed,
+      mime: parsed?.mime,
+      dataLength: receipt.data.length
+    });
 
     let finalExt;
     if (parsed) {
       const derived = mimeToExt(parsed.mime);
       finalExt = derived ? '.' + derived.toLowerCase() : (nameParts.ext || '.png');
+      console.log('📎 Derived file extension:', { derived, finalExt });
     } else {
       finalExt = nameParts.ext || '.png';
+      console.log('📎 Using default file extension:', finalExt);
     }
 
     const base = nameParts.name || 'receipt';
     const unique = `${Date.now()}_${base}${finalExt}`;
-
     const filePath = path.join(RECEIPTS_DIR, unique);
+    
     const b64 = parsed ? parsed.base64 : (receipt.data.split(',').pop() || receipt.data);
-    await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
+    console.log('📝 Writing receipt file:', {
+      filePath,
+      base64Length: b64.length,
+      uniqueFilename: unique
+    });
 
-    console.log('✅ Receipt saved successfully:', unique);
-    return `${RECEIPTS_URL_BASE}/${unique}`;
+    await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
+    console.log('✅ Receipt saved successfully from base64:', unique);
+
+    const receiptUrl = `${RECEIPTS_URL_BASE}/${unique}`;
+    console.log('🔗 Generated receipt URL:', receiptUrl);
+    return receiptUrl;
   } catch (error) {
-    console.error('⚠️ Error saving receipt image:', error);
+    console.error('❌ Error saving receipt image from base64:', {
+      error: error.message,
+      stack: error.stack,
+      filename: receipt.filename,
+      dataLength: receipt.data?.length,
+      filePath: path.join(RECEIPTS_DIR, receipt.filename || 'unknown')
+    });
     return null;
   }
 }
+
 
 // Save receipt from Multer buffer (for FormData uploads)
 async function saveReceiptImageFromBuffer(file) {
-  if (!file || !file.buffer) return null;
+  // Validate input
+  if (!file || !file.buffer) {
+    console.error('❌ Invalid file object for buffer save:', { 
+      file: !!file, 
+      hasBuffer: !!(file && file.buffer) 
+    });
+    return null;
+  }
 
   try {
+    // Ensure receipts directory exists
+    console.log('🔧 Creating receipts directory if needed...');
     await fs.mkdir(RECEIPTS_DIR, { recursive: true });
+    console.log('✅ Receipts directory ready:', RECEIPTS_DIR);
 
+    // Generate secure filename
     const ext = path.extname(file.originalname) || '.png';
     const baseName = path.basename(file.originalname, ext) || 'receipt';
-    const unique = `${Date.now()}_${baseName}${ext}`;
+    
+    // Sanitize baseName to prevent path traversal attacks
+    const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const unique = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${sanitizedBaseName}${ext}`;
 
+    // Construct and validate file path
     const filePath = path.join(RECEIPTS_DIR, unique);
-    await fs.writeFile(filePath, file.buffer);
+    const resolvedPath = path.resolve(filePath);
+    
+    // Security check: Prevent directory traversal
+    if (!resolvedPath.startsWith(path.resolve(RECEIPTS_DIR))) {
+      console.error('❌ Security: Path traversal attempt detected:', resolvedPath);
+      return null;
+    }
 
-    console.log('✅ Receipt saved from buffer:', unique);
-    return `${RECEIPTS_URL_BASE}/${unique}`;
+    console.log('📝 Writing receipt file:', { 
+      filePath: resolvedPath, 
+      fileSize: file.buffer.length 
+    });
+
+    // Write buffer to disk
+    await fs.writeFile(resolvedPath, file.buffer);
+    console.log('✅ Receipt saved successfully from buffer:', unique);
+
+    // Generate and return URL
+    const receiptUrl = `${RECEIPTS_URL_BASE}/${unique}`;
+    console.log('🔗 Generated receipt URL:', receiptUrl);
+    return receiptUrl;
+
   } catch (error) {
-    console.error('⚠️ Error saving receipt from buffer:', error);
+    console.error('❌ Error saving receipt from buffer:', {
+      error: error.message,
+      stack: error.stack,
+      filename: file.originalname,
+      fileSize: file.buffer?.length
+    });
     return null;
   }
 }
+
 
 /**
  * Create a new payment for a caterer sale/bill
  * Handles transactions properly with rollback support
  */
 const createCatererPayment = async (req, res) => {
+  const startTime = Date.now();
   let connection;
   
   try {
+    console.log('🚀 Starting caterer payment creation process at:', new Date().toISOString());
+    
     // Extract payment data from request
     const {
       caterer_id,
@@ -109,6 +182,7 @@ const createCatererPayment = async (req, res) => {
       hasReferenceNumber: !!referenceNumber,
       hasNotes: !!notes,
       hasReceipt: !!receipt || !!req.file,
+      hasFileUpload: !!req.file,
       rawBody: req.body // ✅ Added for debugging
     });
 
@@ -270,15 +344,103 @@ const createCatererPayment = async (req, res) => {
 
     // Save receipt image (outside transaction to avoid locking during file I/O)
     let receiptPath = null;
-    if (req.file) {
-      console.log('📁 Processing Multer file upload:', req.file.originalname);
-      receiptPath = await saveReceiptImageFromBuffer(req.file);
-    } else if (receipt && receipt.data) {
-      console.log('📁 Processing base64 receipt data');
-      receiptPath = await saveReceiptImage(receipt);
+    const receiptStartTime = Date.now();
+    console.log('📁 Starting receipt processing at:', new Date().toISOString());
+    
+    try {
+      if (req.file) {
+        console.log('📁 Processing Multer file upload:', {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          fieldname: req.file.fieldname,
+          filename: req.file.filename,
+          path: req.file.path
+        });
+        
+        // Multer already saved the file, just create the URL path
+        receiptPath = `${RECEIPTS_URL_BASE}/${req.file.filename}`;
+        
+        // Verify the file actually exists
+        try {
+          await fs.access(req.file.path);
+          console.log('✅ Receipt file verified to exist:', req.file.path);
+        } catch (fileError) {
+          console.error('❌ Receipt file does not exist:', req.file.path, fileError.message);
+          receiptPath = null; // Don't save invalid path to database
+        }
+      } else if (receipt && receipt.data) {
+        console.log('📁 Processing base64 receipt data:', {
+          hasFilename: !!receipt.filename,
+          filename: receipt.filename,
+          dataLength: receipt.data ? receipt.data.length : 0
+        });
+        receiptPath = await saveReceiptImage(receipt);
+        
+        // Verify the file actually exists
+        if (receiptPath) {
+          const filePath = path.join(RECEIPTS_DIR, path.basename(receiptPath));
+          try {
+            await fs.access(filePath);
+            console.log('✅ Receipt file verified to exist:', filePath);
+          } catch (fileError) {
+            console.error('❌ Receipt file does not exist:', filePath, fileError.message);
+            receiptPath = null; // Don't save invalid path to database
+          }
+        }
+      }
+      
+      const receiptEndTime = Date.now();
+      console.log('📁 Receipt processing completed:', {
+        receiptPath,
+        processingTime: `${receiptEndTime - receiptStartTime}ms`,
+        success: !!receiptPath
+      });
+      
+      // Validate receiptPath before database insertion
+      if (!receiptPath) {
+        console.warn('⚠️ No receipt path generated - proceeding without receipt image');
+      }
+    } catch (receiptError) {
+      const receiptEndTime = Date.now();
+      console.error('❌ Receipt processing failed:', {
+        error: receiptError.message,
+        stack: receiptError.stack,
+        processingTime: `${receiptEndTime - receiptStartTime}ms`,
+        reqFile: !!req.file,
+        hasReceiptData: !!(receipt && receipt.data)
+      });
+      receiptPath = null;
     }
 
-    // Insert payment record
+    // Insert payment record with enhanced validation and logging
+    console.log('💾 Preparing database insertion:', {
+      bill_id,
+      normalizedMethod,
+      paymentAmount,
+      referenceNumber,
+      hasNotes: !!notes,
+      receiptPath,
+      receiptPathValid: !!receiptPath
+    });
+
+    // Validate receiptPath before insertion
+    if (receiptPath) {
+      try {
+        const filePath = path.join(RECEIPTS_DIR, path.basename(receiptPath));
+        await fs.access(filePath);
+        console.log('✅ Receipt file verified for database insertion:', filePath);
+      } catch (fileError) {
+        console.error('❌ Receipt file verification failed, proceeding without receipt path:', {
+          receiptPath,
+          error: fileError.message,
+          filePath: path.join(RECEIPTS_DIR, path.basename(receiptPath))
+        });
+        receiptPath = null;
+      }
+    }
+
+    const insertStartTime = Date.now();
     const [paymentResult] = await connection.execute(
       `INSERT INTO caterer_sale_payments
        (sale_id, payment_date, payment_method, payment_option, payment_amount, reference_number, notes, receipt_image, created_at)
@@ -293,8 +455,14 @@ const createCatererPayment = async (req, res) => {
       ]
     );
 
+    const insertEndTime = Date.now();
     const paymentId = paymentResult.insertId;
-    console.log('✅ Payment record inserted with ID:', paymentId);
+    console.log('✅ Payment record inserted successfully:', {
+      paymentId,
+      insertTime: `${insertEndTime - insertStartTime}ms`,
+      receiptPathUsed: receiptPath,
+      finalReceiptPath: receiptPath || null
+    });
 
     // Recalculate total paid after this payment
     const [newSumRows] = await connection.execute(
@@ -330,8 +498,21 @@ const createCatererPayment = async (req, res) => {
     );
 
     // Commit transaction
+    const commitStartTime = Date.now();
     await connection.commit();
-    console.log('✅ Transaction committed successfully');
+    const commitEndTime = Date.now();
+    console.log('✅ Transaction committed successfully:', {
+      commitTime: `${commitEndTime - commitStartTime}ms`,
+      totalProcessTime: `${commitEndTime - startTime}ms`
+    });
+
+    const endTime = Date.now();
+    console.log('🎉 Caterer payment creation completed successfully:', {
+      paymentId,
+      totalProcessTime: `${endTime - startTime}ms`,
+      receiptPath,
+      finalStatus: newStatus
+    });
 
     // Return success response
     return res.status(201).json({
@@ -352,24 +533,36 @@ const createCatererPayment = async (req, res) => {
     });
 
   } catch (error) {
+    const errorTime = Date.now();
+    console.error('❌ Error creating caterer payment:', {
+      error: error.message,
+      stack: error.stack,
+      totalProcessTime: `${errorTime - startTime}ms`,
+      errorType: error.constructor.name,
+      hasConnection: !!connection
+    });
+
     // Rollback transaction on error
     if (connection) {
       try {
         await connection.rollback();
         console.log('🔄 Transaction rolled back due to error');
       } catch (rollbackError) {
-        console.error('❌ Error during rollback:', rollbackError);
+        console.error('❌ Error during rollback:', {
+          rollbackError: rollbackError.message,
+          stack: rollbackError.stack
+        });
       }
     }
-
-    console.error('❌ Error creating caterer payment:', error);
-    console.error('Stack trace:', error.stack);
 
     return res.status(500).json({
       success: false,
       error: 'Failed to record payment',
       message: error.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      ...(process.env.NODE_ENV === 'development' && {
+        stack: error.stack,
+        processingTime: `${errorTime - startTime}ms`
+      })
     });
 
   } finally {
