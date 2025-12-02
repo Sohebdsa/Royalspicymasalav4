@@ -26,25 +26,23 @@ import CatererBillPaymentCollectionDialog from './CatererBillPaymentCollectionDi
 import CatererBillCardModal from './CatererBillCardModal';
 import { useToast } from '../../contexts/ToastContext';
 
-// Base constants and URL normalizer
+// Constants
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const RECEIPTS_BASE = '/caterers/assets/receipts';
 
+// Utility Functions
 const toReceiptUrl = (val) => {
   if (!val) return '';
   if (/^https?:\/\//i.test(val)) return val;
 
-  // Handle new receipt path
   if (val.startsWith(RECEIPTS_BASE)) {
     return API_BASE ? `${API_BASE}${val}` : val;
   }
 
-  // Legacy paths
   if (val.startsWith('/caterers/assets/reciepts') || val.startsWith('/caterers/assets/receipts') || val.startsWith('/uploads/receipts/')) {
     return API_BASE ? `${API_BASE}${val}` : val;
   }
 
-  // Bare filename
   if (!val.startsWith('/')) {
     return API_BASE ? `${API_BASE}${RECEIPTS_BASE}/${val}` : `${RECEIPTS_BASE}/${val}`;
   }
@@ -56,9 +54,9 @@ const rupee = (v) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(parseFloat(v || 0));
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
-  // ✅ FIXED: Correct destructuring of toast functions
   const { showSuccess, showError, showInfo } = useToast();
   
+  // State Management
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedMix, setExpandedMix] = useState({});
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -67,11 +65,12 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const [receipts, setReceipts] = useState([]);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // Derived totals
+  // Computed Values
   const grandTotal = useMemo(() => parseFloat(bill?.grand_total || 0), [bill]);
   const totalPaid = useMemo(() => parseFloat(bill?.total_paid || 0), [bill]);
   const pendingAmount = useMemo(() => Math.max(grandTotal - totalPaid, 0), [grandTotal, totalPaid]);
 
+  // Date/Time Formatting
   const formatDate = useCallback((d) => {
     if (!d) return 'N/A';
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -82,11 +81,10 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     return new Date(`2000-01-01T${t}`).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   }, []);
 
+  // Status Badge Component
   const getStatusPill = (status) => {
-    // Always calculate actual status based on payment amounts
     let actualStatus = status;
     
-    // Recalculate based on actual amounts (takes precedence over stored status)
     if (pendingAmount <= 0) {
       actualStatus = 'paid';
     } else if (totalPaid <= 0) {
@@ -95,41 +93,46 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
       actualStatus = 'partial';
     }
 
-    const map = {
-      paid: 'bg-green-100 text-green-800 border-green-200',
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      partial: 'bg-blue-100 text-blue-800 border-blue-200',
-      overdue: 'bg-red-100 text-red-800 border-red-200',
-      cancelled: 'bg-red-100 text-red-800 border-red-200'
+    const statusConfig = {
+      paid: { class: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircleIcon },
+      pending: { class: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: ExclamationCircleIcon },
+      partial: { class: 'bg-blue-100 text-blue-800 border-blue-200', icon: ExclamationCircleIcon },
+      overdue: { class: 'bg-red-100 text-red-800 border-red-200', icon: ExclamationCircleIcon },
+      cancelled: { class: 'bg-red-100 text-red-800 border-red-200', icon: ExclamationCircleIcon }
     };
-    const Icon = actualStatus === 'paid' ? CheckCircleIcon : ExclamationCircleIcon;
-    const cls = map[actualStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+    const config = statusConfig[actualStatus] || { class: 'bg-gray-100 text-gray-800 border-gray-200', icon: ExclamationCircleIcon };
+    const Icon = config.icon;
 
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.class}`}>
         <Icon className="h-4 w-4" />
         <span className="ml-1 capitalize">{actualStatus || 'unknown'}</span>
       </span>
     );
   };
 
+  // Payment Method Icons
   const getPaymentIcon = (method) => {
-    switch (method) {
-      case 'cash': return <BanknotesIcon className="h-4 w-4" />;
-      case 'upi': return <DevicePhoneMobileIcon className="h-4 w-4" />;
-      case 'bank_transfer': return <BuildingLibraryIcon className="h-4 w-4" />;
-      case 'cheque': return <DocumentCheckIcon className="h-4 w-4" />;
-      case 'card': return <CreditCardIcon className="h-4 w-4" />;
-      default: return <EllipsisHorizontalIcon className="h-4 w-4" />;
-    }
+    const icons = {
+      cash: BanknotesIcon,
+      upi: DevicePhoneMobileIcon,
+      bank_transfer: BuildingLibraryIcon,
+      cheque: DocumentCheckIcon,
+      card: CreditCardIcon
+    };
+    const Icon = icons[method] || EllipsisHorizontalIcon;
+    return <Icon className="h-4 w-4" />;
   };
 
+  // Mix Product Detection
   const isMixProduct = (item) => {
     const hasFlag = item?.is_mix === true || item?.is_mix === 1;
     const hasChildren = Array.isArray(item?.mix_items) && item?.mix_items.length > 0;
     return hasFlag && hasChildren;
   };
 
+  // Event Handlers
   const toggleBill = () => {
     if (isExpanded) setExpandedMix({});
     setIsExpanded((p) => !p);
@@ -145,12 +148,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     setShowPaymentDialog(true);
   };
 
-  const handlePaymentSuccess = () => {
-    setShowPaymentDialog(false);
-    setSelectedBillForPayment(null);
-    onPaymentUpdate?.();
-  };
-
   const openReceipts = (paymentReceipts) => {
     if (Array.isArray(paymentReceipts) && paymentReceipts.length > 0) {
       setReceipts(paymentReceipts);
@@ -158,41 +155,27 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
     }
   };
 
-  // ✅ FIXED: Correct usage of toast functions
   const handlePaymentSubmit = async (formData) => {
     setIsProcessingPayment(true);
     try {
-      console.log('Submitting payment...');
-      
-      // Log FormData contents for debugging
-      const formDataEntries = {};
-      formData.forEach((value, key) => {
-        formDataEntries[key] = value instanceof File ? `[File: ${value.name}]` : value;
-      });
-      console.log('FormData contents:', formDataEntries);
-      
       const response = await fetch(`${API_BASE}/api/caterer-payments/create`, {
         method: 'POST',
         body: formData
       });
       
-      // Check content type before parsing
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        const errorText = await response.text();
-        console.error('Non-JSON response:', errorText);
         throw new Error('Server returned an invalid response');
       }
       
       const result = await response.json();
-      console.log('Payment response:', result);
       
       if (!response.ok) {
         throw new Error(result.error || result.message || `Server error: ${response.status}`);
       }
       
       if (result.success) {
-        showSuccess('Payment recorded successfully'); // ✅ FIXED
+        showSuccess('Payment recorded successfully');
         setShowPaymentDialog(false);
         setSelectedBillForPayment(null);
         onPaymentUpdate?.();
@@ -200,8 +183,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         throw new Error(result.error || result.message || 'Failed to record payment');
       }
     } catch (error) {
-      console.error('❌ Payment submission failed:', error);
-      showError(error.message || 'Failed to record payment'); // ✅ FIXED
+      showError(error.message || 'Failed to record payment');
     } finally {
       setIsProcessingPayment(false);
     }
@@ -216,12 +198,13 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const copyBillNumber = async () => {
     try {
       await navigator.clipboard.writeText(bill?.bill_number || '');
-      showSuccess('Bill number copied to clipboard'); // ✅ FIXED
+      showSuccess('Bill number copied to clipboard');
     } catch (error) {
-      showError('Failed to copy bill number'); // ✅ FIXED
+      showError('Failed to copy bill number');
     }
   };
 
+  // Early Return for Invalid Data
   if (!bill) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -233,7 +216,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   return (
     <>
       <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
-        {/* ✅ FIXED: Changed from button to div to prevent nested button issue */}
+        {/* Header - Collapsible */}
         <div
           role="button"
           tabIndex={0}
@@ -259,7 +242,6 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-900">{bill?.bill_number || 'N/A'}</h3>
-                    {/* ✅ FIXED: This button now works correctly since parent is div */}
                     <button
                       type="button"
                       onClick={(e) => { 
@@ -312,10 +294,10 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
           </div>
         </div>
 
-        {/* Body */}
+        {/* Expanded Content */}
         {isExpanded && (
           <div className="border-t border-gray-200 p-5 space-y-6">
-            {/* Sale Information */}
+            {/* Sale Information Section */}
             <section>
               <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
                 <DocumentTextIcon className="h-4 w-4 mr-2" />
@@ -346,7 +328,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               </div>
             </section>
 
-            {/* Items */}
+            {/* Sale Items Section */}
             <section>
               <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
                 <DocumentTextIcon className="h-4 w-4 mr-2" />
@@ -356,14 +338,17 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                 {Array.isArray(bill?.items) && bill.items.length > 0 ? (
                   bill.items.map((item, idx) => {
-                    const key = item?.id ?? `item-${idx}`;
+                    const key = item?.id ?? `item-${bill.id}-${idx}`;
                     const mix = isMixProduct(item);
                     const open = !!expandedMix[key];
 
                     return (
                       <div key={key} className="rounded-md bg-white border border-gray-200 p-3">
                         <div className="flex justify-between">
-                          <div className="flex-1 flex">
+                          <div className="flex-1 flex items-start">
+                            {/* ❌ REMOVED: Numbered badge for main products */}
+                            
+                            {/* Mix Toggle Button */}
                             <div className="w-5 pt-1">
                               {mix && (
                                 <button
@@ -379,13 +364,14 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                               )}
                             </div>
 
-                            <div className="ml-2">
+                            {/* Product Details */}
+                            <div className="ml-2 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-gray-900">{item?.product_name || 'Unknown Product'}</span>
                                 {mix && (
                                   <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">
                                     <CubeIcon className="h-3 w-3 mr-1" />
-                                    Mix ({item?.mix_items?.length || 0})
+                                    Mix ({item?.mix_items?.length})
                                   </span>
                                 )}
                               </div>
@@ -395,7 +381,8 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                             </div>
                           </div>
 
-                          <div className="text-right">
+                          {/* Price */}
+                          <div className="text-right flex-shrink-0 ml-3">
                             <div className="font-semibold text-gray-900">{rupee(item?.total_amount || 0)}</div>
                             {parseFloat(item?.gst_amount || 0) > 0 && (
                               <div className="text-xs text-gray-500">GST: {rupee(item?.gst_amount || 0)}</div>
@@ -403,6 +390,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                           </div>
                         </div>
 
+                        {/* Mix Items Expansion - KEEP NUMBERING HERE */}
                         {mix && open && (
                           <div id={`mix-${key}`} className="mt-3 rounded-md border border-orange-200 bg-orange-50">
                             <div className="px-3 py-2 border-b border-orange-200 text-xs font-semibold text-orange-900 flex items-center">
@@ -411,23 +399,35 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                             </div>
 
                             <div className="divide-y divide-orange-200">
-                              {item?.mix_items?.map((m, mIdx) => (
-                                <div key={`mix-${key}-${mIdx}`} className="px-3 py-2 flex items-start justify-between text-xs">
-                                  <div className="pr-2">
-                                    <div className="font-medium text-gray-900">{m?.product_name || 'Unknown'}</div>
-                                    <div className="text-orange-700 mt-0.5">
-                                      {parseFloat(m?.quantity || 0).toFixed(3)} {m?.unit || 'unit'}
-                                      {m?.batch_number && <span className="ml-2 text-orange-600">• Batch: {m?.batch_number}</span>}
+                              {Array.isArray(item?.mix_items) && item.mix_items.length > 0 ? (
+                                item.mix_items.map((m, mIdx) => (
+                                  <div key={`mix-${key}-${mIdx}`} className="px-3 py-2 flex items-start justify-between text-xs">
+                                    <div className="pr-2 flex items-start flex-1">
+                                      {/* ✅ KEEP: Numbered dot for mix items only */}
+                                      <div className="flex-shrink-0 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-[10px] font-semibold mr-2 mt-0.5">
+                                        {mIdx + 1}
+                                      </div>
+                                      <div className="flex-1">
+                                        <div className="font-medium text-gray-900">{m?.product_name || 'Unknown'}</div>
+                                        <div className="text-orange-700 mt-0.5">
+                                          {parseFloat(m?.quantity || 0).toFixed(3)} {m?.unit || 'unit'}
+                                          {m?.batch_number && <span className="ml-2 text-orange-600">• Batch: {m?.batch_number}</span>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="text-right flex-shrink-0 ml-3">
+                                      <div className="font-semibold text-orange-700">{rupee(m?.allocatedBudget || 0)}</div>
+                                      <div className="text-[10px] text-gray-500">
+                                        @ {rupee(m?.rate || 0)}/{m?.unit || 'unit'}
+                                      </div>
                                     </div>
                                   </div>
-                                  <div className="text-right">
-                                    <div className="font-semibold text-orange-700">{rupee(m?.allocatedBudget || 0)}</div>
-                                    <div className="text-[10px] text-gray-500">
-                                      @ {rupee(m?.rate || 0)}/{m?.unit || 'unit'}
-                                    </div>
-                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-3 py-2 text-xs text-gray-500 text-center">
+                                  No mix items available
                                 </div>
-                              ))}
+                              )}
                             </div>
 
                             {item?.batch_number && (
@@ -444,7 +444,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   <div className="text-sm text-gray-500 text-center py-6">No items found</div>
                 )}
 
-                {/* Summary */}
+                {/* Summary Section */}
                 <div className="mt-3 border-t border-gray-200 pt-3 space-y-1">
                   <div className="flex justify-between text-sm">
                     <span>Items Total:</span>
@@ -458,7 +458,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   {Array.isArray(bill?.other_charges) && bill?.other_charges.length > 0 ? (
                     <>
                       {bill.other_charges.map((c, i) => (
-                        <div key={`oc-${i}`} className="flex justify-between text-sm">
+                        <div key={`oc-${bill.id}-${i}`} className="flex justify-between text-sm">
                           <span>{c?.charge_name || 'Charge'}:</span>
                           <span>
                             {c?.charge_type === 'percentage'
@@ -487,7 +487,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
               </div>
             </section>
 
-            {/* Payments */}
+            {/* Payment Information Section */}
             <section>
               <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
                 <CurrencyRupeeIcon className="h-4 w-4 mr-2" />
@@ -503,7 +503,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setShowPaymentDialog(true); }}
-                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                   >
                     Collect Payment
                   </button>
@@ -512,7 +512,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 <div className="space-y-3">
                   {Array.isArray(bill?.payments) && bill.payments.length > 0 ? (
                     bill.payments.map((p) => (
-                      <div key={p?.id} className="bg-gray-50 rounded-lg p-4">
+                      <div key={`p-${bill.id}-${p?.id || 'no-id'}`} className="bg-gray-50 rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="flex items-center text-gray-600">
@@ -561,7 +561,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                                             `Payment Receipt - ${rupee(p?.payment_amount || 0)}`
                                           );
                                         }}
-                                        className="p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                                        className="p-1.5 text-gray-500 hover:text-gray-700 rounded transition-colors"
                                         title="View Payment Receipt"
                                       >
                                         <EyeIcon className="h-4 w-4" />
@@ -580,7 +580,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                                           }));
                                           openReceipts(mapped);
                                         }}
-                                        className="p-1.5 text-blue-500 hover:text-blue-700 rounded"
+                                        className="p-1.5 text-blue-500 hover:text-blue-700 rounded transition-colors"
                                         title={`View all ${(p.receipt_images || p.receipts).length} receipts`}
                                       >
                                         <DocumentDuplicateIcon className="h-4 w-4" />
@@ -622,7 +622,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setShowPaymentDialog(true); }}
-                        className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                        className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                       >
                         Collect Payment
                       </button>
@@ -635,7 +635,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         )}
       </div>
 
-      {/* Payment Dialog */}
+      {/* Payment Collection Dialog */}
       <CatererBillPaymentCollectionDialog
         isOpen={showPaymentDialog}
         onClose={() => setShowPaymentDialog(false)}
@@ -653,7 +653,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         isLoading={isProcessingPayment}
       />
 
-      {/* Receipt Modal */}
+      {/* Receipt Viewer Modal */}
       <CatererBillCardModal
         receipts={receipts}
         isOpen={showReceiptModal}

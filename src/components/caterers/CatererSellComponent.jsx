@@ -130,16 +130,11 @@ const CatererSellComponent = () => {
           setProducts([]);
         }
 
-        // Get next bill number using direct fetch (fallback if API service fails)
+        // Get next bill number using the API service
         try {
-          const billResponse = await fetch(`${API_ENDPOINTS.CATERER_SALES_NEXT_BILL_NUMBER}`);
-          if (billResponse.ok) {
-            const billData = await billResponse.json();
-            if (billData.success) {
-              setBillNumber(billData.bill_number);
-            } else {
-              setBillNumber('#0001');
-            }
+          const billData = await catererSalesService.getNextBillNumber();
+          if (billData.success) {
+            setBillNumber(billData.bill_number);
           } else {
             setBillNumber('#0001');
           }
@@ -307,7 +302,7 @@ const CatererSellComponent = () => {
     const itemWithBatchInfo = {
       ...selectedItem,
       // Extract batch information from the batches array
-      batch: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].batch : null,
+      batch_number: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].batch : null,
       expiry_date: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].expiry_date : null
     };
 
@@ -1253,7 +1248,7 @@ const CatererSellComponent = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {sellData.other_charges.map((charge, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
+                      <tr key={`charge-${index}`} className="hover:bg-gray-50">
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
                           {charge.name}
                         </td>
@@ -1585,7 +1580,7 @@ const CatererSellComponent = () => {
                   mixName: mixName,
                   mixIndex: index,
                   isMixItem: true,
-                  batch: product.selectedBatch,
+                  batch_number: product.selectedBatch,
                   batchId: null,
                   batchQuantity: product.calculatedQuantity,
                   batchUnit: product.unit || 'kg'

@@ -30,6 +30,7 @@ const inventoryRoutes = require('./inventory/inventoryRoutes.cjs');
 const catererRoutes = require('./caterers/catererRoutes/catererRoutes.cjs');
 const catererSalesRoutes = require('./caterers/catererRoutes/catererSalesRoutes.cjs');
 const catererPaymentRoutes = require('./caterers/payments/catererPaymentRoutes.cjs');
+const catererViewRoutes = require('./caterers/catererRoutes/catererViewRoutes.cjs');
 const ordersRoutes = require('./orders/ordersRoutes.cjs');
 const catererOrdersRoutes = require('./caterer-orders/catererOrdersRoutes.cjs');
 const customersRoutes = require('./customers/customersRoutes.cjs');
@@ -120,6 +121,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/caterers', catererRoutes);
 app.use('/api/caterer-sales', catererSalesRoutes);
 app.use('/api/caterer-payments', catererPaymentRoutes);
+app.use('/api/caterer-view', catererViewRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/caterer-orders', catererOrdersRoutes);
 app.use('/api/customers', customersRoutes);
@@ -194,7 +196,7 @@ const initializeCaterersSystem = async () => {
   try {
     if (typeof initializeCaterersDatabase === 'function') {
       console.log('🍽️  Initializing caterers system (merged initializer)...');
-      await initializeCaterersDatabase(); // merged version creates caterers + sales tables & triggers if you merged them
+      await initializeCaterersDatabase(); 
       console.log('✅ Caterers system initialized successfully!');
     } else {
       console.log('ℹ️  Caterers database initialization not found, skipping...');
@@ -257,10 +259,10 @@ const startServer = async () => {
     await initializeCaterersSystem();
 
     // Customers
-    console.log('👥 Initializing customers system...');
-    const { initializeCustomersDatabase } = require('./customers/customersDatabase.cjs');
-    await initializeCustomersDatabase();
-    console.log('✅ Customers system initialized successfully!');
+    // console.log('👥 Initializing customers system...');
+    // const { initializeCustomersDatabase } = require('./customers/customersDatabase.cjs');
+    // await initializeCustomersDatabase();
+    // console.log('✅ Customers system initialized successfully!');
 
     // Start server
     app.listen(PORT, () => {

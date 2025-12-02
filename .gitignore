@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+server/caterers/assets/
+public/uploads/receipts
+server/products/images/
 
 # Editor directories and files
 .vscode/*

@@ -167,10 +167,10 @@ const getInventorySummary = async (req, res) => {
 // Get inventory history
 const getInventoryHistory = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 50, 
-      product_id = '', 
+    const {
+      page = 1,
+      limit = 50,
+      product_id = '',
       action = '',
       date_from = '',
       date_to = ''
@@ -206,7 +206,7 @@ const getInventoryHistory = async (req, res) => {
     }
 
     // Count total records
-    const countQuery = `SELECT COUNT(*) as total FROM inventory i ${whereClause}`;
+    const countQuery = `SELECT COUNT(*) as total FROM inventory_history i ${whereClause}`;
     const [countResult] = await pool.execute(countQuery, params);
     const totalRecords = countResult[0].total;
 
@@ -221,16 +221,14 @@ const getInventoryHistory = async (req, res) => {
         i.quantity,
         i.value,
         i.unit,
-        i.status,
         i.notes,
         i.reference_type,
         i.reference_id,
         i.created_at,
-        i.updated_at,
         p.name as current_product_name,
         p.category_id,
         p.sub_category
-      FROM inventory i
+      FROM inventory_history i
       LEFT JOIN products p ON i.product_id = p.id
       ${whereClause}
       ORDER BY i.created_at DESC, i.id DESC

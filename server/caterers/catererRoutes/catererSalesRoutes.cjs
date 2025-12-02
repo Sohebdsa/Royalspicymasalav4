@@ -122,6 +122,7 @@ router.post('/create',
       console.log('🔄 Starting transaction for new sale');
       
       const saleData = req.body;
+      console.log(saleData);
       const timestamp = new Date().toISOString();
       
       // Generate unique bill number if not provided or if it already exists
@@ -170,15 +171,15 @@ router.post('/create',
       if (remainingAfterDerived === 0) initialStatus = 'paid';
       else if (Number(derivedPayAmount) > 0) initialStatus = 'partial';
       
-      console.log('📊 Processing sale data:', {
-        caterer_id: saleData.caterer_id,
-        bill_number: saleData.bill_number,
-        items_count: saleData.items?.length || 0,
-        grand_total: saleData.grand_total,
-        payment_method: normalizedMethod,
-        payment_amount: derivedPayAmount,
-        payment_status: initialStatus
-      });
+      // console.log('📊 Processing sale data:', {
+      //   caterer_id: saleData.caterer_id,
+      //   bill_number: saleData.bill_number,
+      //   items_count: saleData.items?.length || 0,
+      //   grand_total: saleData.grand_total,
+      //   payment_method: normalizedMethod,
+      //   payment_amount: derivedPayAmount,
+      //   payment_status: initialStatus
+      // });
       
       // 1. Insert into caterer_sales table
       console.log('📝 Inserting into caterer_sales table...');
@@ -201,11 +202,11 @@ router.post('/create',
       );
       
       const saleId = saleResult.insertId;
-      console.log(`✅ Sale created with ID: ${saleId}`);
+      // console.log(`✅ Sale created with ID: ${saleId}`);
       
       // 2. Insert sale items (including mix products)
       if (saleData.items && saleData.items.length > 0) {
-        console.log(`📝 Inserting ${saleData.items.length} sale items...`);
+        // console.log(`📝 Inserting ${saleData.items.length} sale items...`);
         
         let currentMixId = 1; // Mix ID counter for this sale
         
@@ -232,7 +233,7 @@ router.post('/create',
           
           if (isMixProduct && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0) {
             // Insert mix header item
-            console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId})`);
+            // console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId})`);
             
             const [mixHeaderResult] = await connection.execute(
               `INSERT INTO caterer_sale_items
@@ -263,7 +264,7 @@ router.post('/create',
             const mixHeaderId = mixHeaderResult.insertId;
             
             // Insert individual mix items
-            console.log(`   └─ Inserting ${item.mixItems.length} items in mix...`);
+            // console.log(`   └─ Inserting ${item.mixItems.length} items in mix...`);
             for (const mixItem of item.mixItems) {
               // Get batch info for mix item
               let mixItemBatch = null;
@@ -413,8 +414,77 @@ router.post('/create',
       );
       console.log('✅ Payment record inserted');
       
+      // 5. Perform inventory deduction within the same transaction
+      console.log('🔄 Starting inventory deduction for sale...');
+      try {
+        const { deductProductsFromInventory, checkInventorySufficiency } = require('../catererBillInventoryDeduction.cjs');
+        
+        // Prepare inventory deduction data
+        const inventoryData = {
+          id: saleId,
+          bill_number: saleData.bill_number,
+          items: saleData.items.map(item => ({
+            ...item,
+            batch: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null)
+          }))
+        };
+        
+        console.log('📦 Preparing inventory deduction data:');
+        console.log(`   Sale ID: ${inventoryData.id}`);
+        console.log(`   Bill Number: ${inventoryData.bill_number}`);
+        console.log(`   Items: ${inventoryData.items.length}`);
+        
+        if (inventoryData.items && Array.isArray(inventoryData.items)) {
+          inventoryData.items.forEach((item, index) => {
+            console.log(`   ${index + 1}. ${item.product_name} - Qty: ${item.quantity} - Product ID: ${item.product_id} - Batch: ${item.batch || 'N/A'}`);
+          });
+        } else {
+          console.log('   ⚠️ No items found in inventory data');
+          throw new Error('No items found in bill data for inventory deduction');
+        }
+        
+        // Pre-check inventory sufficiency before attempting deduction
+        console.log('🔍 Pre-checking inventory sufficiency...');
+        for (const item of inventoryData.items) {
+          if (item.quantity > 0 && item.product_id) {
+            const sufficiencyCheck = await checkInventorySufficiency(
+              item.product_id,
+              item.quantity
+            );
+            
+            console.log(`   ${item.product_name}:`);
+            console.log(`      Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+            
+            if (!sufficiencyCheck.isSufficient) {
+              console.error(`   ❌ INSUFFICIENT INVENTORY for ${item.product_name}`);
+              console.error(`      Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+              console.error(`      Deficit: ${sufficiencyCheck.deficit}`);
+              throw new Error(`Insufficient inventory for product ${item.product_name}. Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+            }
+            
+            console.log(`   ✅ Sufficient inventory confirmed`);
+          }
+        }
+        // Perform inventory deduction
+        console.log('🔄 Performing inventory deduction...');
+        await deductProductsFromInventory(inventoryData);
+        console.log('✅ Inventory deduction completed successfully');
+        console.log('✅ All inventory deductions verified successfully');
+        
+      } catch (deductionError) {
+        console.error('❌ INVENTORY DEDUCTION FAILED');
+        console.error('❌ Error message:', deductionError.message);
+        console.error('❌ Error type:', deductionError.constructor.name);
+        console.error('❌ Rolling back entire transaction to prevent database inconsistency...');
+        console.error('❌ No bill will be created to maintain data integrity');
+        throw deductionError; // This will cause the transaction to rollback
+      }
+      
+      // Commit the transaction only if everything succeeds
+      console.log('🎯 All validations passed - committing transaction...');
       await connection.commit();
-      console.log('✅ Transaction committed successfully');
+      console.log('✅ TRANSACTION COMMITTED SUCCESSFULLY');
+      console.log('✅ Bill created and inventory deducted - database is consistent');
       
       const responseData = {
         success: true,
@@ -431,7 +501,7 @@ router.post('/create',
     } catch (error) {
       if (connection) {
         await connection.rollback();
-        console.error('🔄 Transaction rolled back');
+        console.error('🔄 Transaction rolled back due to error:', error.message);
       }
       
       console.error('❌ Error creating sale:', {
@@ -444,10 +514,29 @@ router.post('/create',
         stack: error.stack
       });
       
+      // Provide more specific error messages based on the error type
+      let errorMessage = 'Failed to create sale';
+      let errorType = 'UNKNOWN_ERROR';
+      
+      if (error.message.includes('inventory') || error.message.includes('deduction')) {
+        errorMessage = 'Failed to deduct products from inventory. Sale not created.';
+        errorType = 'INVENTORY_DEDUCTION_FAILED';
+      } else if (error.message.includes('product') && error.message.includes('not found')) {
+        errorMessage = 'One or more products not found in inventory. Sale not created.';
+        errorType = 'PRODUCT_NOT_FOUND';
+      } else if (error.message.includes('insufficient quantity')) {
+        errorMessage = 'Insufficient quantity in inventory. Sale not created.';
+        errorType = 'INSUFFICIENT_INVENTORY';
+      } else if (error.code === 'ER_DUP_ENTRY') {
+        errorMessage = 'Duplicate bill number. Please try again.';
+        errorType = 'DUPLICATE_BILL_NUMBER';
+      }
+      
       res.status(500).json({
         success: false,
-        message: 'Failed to create sale',
+        message: errorMessage,
         error: error.message,
+        errorType: errorType,
         errorCode: error.code,
         sqlMessage: error.sqlMessage || 'Database error'
       });

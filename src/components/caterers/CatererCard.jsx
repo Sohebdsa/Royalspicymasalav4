@@ -49,7 +49,7 @@ const CatererCard = ({ caterer, onEdit, onDelete, onCatererUpdated }) => {
   };
 
   const handleView = () => {
-    showSuccess('View Caterer (to be implemented)');
+    navigate(`/caterers/${caterer.id}/view`);
   };
 
   const handleSell = () => {

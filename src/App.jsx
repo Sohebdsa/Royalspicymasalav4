@@ -25,6 +25,7 @@ import CatererSellPage from './pages/caterers/CatererSellPage';
 import CatererOrdersPage from './pages/caterer-orders/CatererOrdersPage';
 import CatererHistoryPage from './pages/caterer-orders/caterer-history/CatererHistoryPage';
 import CatererSalesHistoryPage from './pages/caterers/CatererSalesHistoryPage';
+import CatererViewPage from './components/caterers/caterer_view/CatererViewPage';
 import FinancialTrackerPage from './pages/financial-tracker/FinancialTrackerPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import CustomerOnlinePage from './pages/customer-online/CustomerOnlinePage';
@@ -63,6 +64,7 @@ function App() {
                     <Route path="suppliers/purchase-history" element={<SupplierPurchaseHistoryPage />} />
                     <Route path="caterers" element={<CaterersPage />} />
                     <Route path="caterers/:catererId/sell" element={<CatererSellPage />} />
+                    <Route path="caterers/:catererId/view" element={<CatererViewPage />} />
                     <Route path="caterer-orders" element={<CatererOrdersPage />} />
                     <Route path="caterer-orders/caterer-history" element={<CatererHistoryPage />} />
                     <Route path="caterers/sales-history" element={<CatererSalesHistoryPage />} />

@@ -5,10 +5,10 @@ const path = require('path');
 // Get all supplier purchases with pagination and filtering
 const getSupplierPurchases = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 50, 
-      supplier_id = '', 
+    const {
+      page = 1,
+      limit = 50,
+      supplier_id = '',
       status = '',
       date_from = '',
       date_to = ''
@@ -158,7 +158,7 @@ const getNextBillNumber = async (req, res) => {
     );
 
     let nextBillNumber = '#0001';
-    
+
     if (result.length > 0) {
       const lastBillNumber = result[0].bill_number;
       const lastNumber = parseInt(lastBillNumber.replace('#', ''));
@@ -348,6 +348,34 @@ const createSupplierPurchase = async (req, res) => {
           ]
         );
 
+        // Also log to inventory_history for audit trail
+        await pool.execute(
+          `INSERT INTO inventory_history (
+            product_id,
+            product_name,
+            batch,
+            action,
+            quantity,
+            value,
+            cost_per_kg,
+            unit,
+            reference_type,
+            reference_id,
+            notes
+          ) VALUES (?, ?, ?, 'added', ?, ?, ?, ?, 'purchase', ?, ?)`,
+          [
+            productId,
+            item.product_name || 'Unknown Product',
+            batch,
+            parseFloat(item.quantity) || 0,
+            costValue,
+            (item.unit === 'kg' && parseFloat(item.quantity) > 0) ? (costValue / parseFloat(item.quantity)) : 0,
+            item.unit || 'kg',
+            purchaseId,
+            `Purchase from supplier - Bill: ${bill_number}`
+          ]
+        );
+
 
         // Manually update inventory summary
         await pool.execute(
@@ -423,7 +451,7 @@ const updateSupplierPurchase = async (req, res) => {
     }
 
     const purchase = existingPurchase[0];
-    
+
     // Calculate new amount pending if payment amount is updated
     let newAmountPending = purchase.amount_pending;
     if (payment_amount !== undefined) {
