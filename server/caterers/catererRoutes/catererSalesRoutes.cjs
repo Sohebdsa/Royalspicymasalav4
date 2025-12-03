@@ -5,14 +5,14 @@ const path = require('path');
 const fs = require('fs/promises');
 
 const methodMap = {
-  cash:'cash',
-  upi:'upi',
-  card:'card',
-  bank:'bank_transfer',
-  bank_transfer:'bank_transfer',
-  cheque:'cheque',
-  check:'cheque',
-  credit:'credit'
+  cash: 'cash',
+  upi: 'upi',
+  card: 'card',
+  bank: 'bank_transfer',
+  bank_transfer: 'bank_transfer',
+  cheque: 'cheque',
+  check: 'cheque',
+  credit: 'credit'
 };
 
 async function saveReceiptImage(receipt) {
@@ -39,8 +39,8 @@ function derivePaymentAmount(option, grandTotal, customAmount) {
 // Normalize bill number to #0001 style if you use that elsewhere
 const normBill = b => {
   if (!b) return b;
-  const num = String(b).replace('#','').replace(/\D/g,'');
-  return '#'+String(num).padStart(4,'0');
+  const num = String(b).replace('#', '').replace(/\D/g, '');
+  return '#' + String(num).padStart(4, '0');
 };
 
 // Middleware to log requests
@@ -70,7 +70,7 @@ const validateSalesData = (req, res, next) => {
 
     const required = ['caterer_id', 'sell_date', 'grand_total'];
     const missing = required.filter(field => !req.body[field]);
-    
+
     if (missing.length > 0) {
       return res.status(400).json({
         success: false,
@@ -104,7 +104,7 @@ router.post('/create',
   validateSalesData,
   async (req, res) => {
     let connection;
-    
+
     try {
       if (!db || !db.pool) {
         console.error('❌ Database pool is not configured');
@@ -117,14 +117,14 @@ router.post('/create',
 
       connection = await db.pool.getConnection();
       console.log('✅ Database connection acquired');
-      
+
       await connection.beginTransaction();
       console.log('🔄 Starting transaction for new sale');
-      
+
       const saleData = req.body;
       console.log(saleData);
       const timestamp = new Date().toISOString();
-      
+
       // Generate unique bill number if not provided or if it already exists
       let billNumber = normBill(saleData.bill_number);
       if (!billNumber) {
@@ -161,7 +161,7 @@ router.post('/create',
           billNumber = nextBillNumber;
         }
       }
-      
+
       saleData.bill_number = billNumber;
       const normalizedMethod = methodMap[String(saleData.payment_method || '').toLowerCase()] || 'cash';
       const derivedPayAmount = derivePaymentAmount(saleData.payment_option, saleData.grand_total, saleData.payment_amount);
@@ -170,7 +170,7 @@ router.post('/create',
       let initialStatus = 'pending';
       if (remainingAfterDerived === 0) initialStatus = 'paid';
       else if (Number(derivedPayAmount) > 0) initialStatus = 'partial';
-      
+
       // console.log('📊 Processing sale data:', {
       //   caterer_id: saleData.caterer_id,
       //   bill_number: saleData.bill_number,
@@ -180,7 +180,7 @@ router.post('/create',
       //   payment_amount: derivedPayAmount,
       //   payment_status: initialStatus
       // });
-      
+
       // 1. Insert into caterer_sales table
       console.log('📝 Inserting into caterer_sales table...');
       const [saleResult] = await connection.execute(
@@ -200,28 +200,28 @@ router.post('/create',
           initialStatus
         ]
       );
-      
+
       const saleId = saleResult.insertId;
       // console.log(`✅ Sale created with ID: ${saleId}`);
-      
+
       // 2. Insert sale items (including mix products)
       if (saleData.items && saleData.items.length > 0) {
         // console.log(`📝 Inserting ${saleData.items.length} sale items...`);
-        
+
         let currentMixId = 1; // Mix ID counter for this sale
-        
+
         for (const item of saleData.items) {
           const amount = (item.quantity || 0) * (item.rate || 0);
           const gstAmount = item.gst_amount || 0;
           const totalAmount = item.isMix || item.total ? parseFloat(item.total || amount) : (amount + gstAmount);
-          
+
           // Check if this is a mix product
           const isMixProduct = item.isMix || (item.product_id && item.product_id.toString().startsWith('mix-'));
-          
+
           // Handle batch information
           let batchNumber = null;
           let expiryDate = null;
-          
+
           if (item.batch) {
             batchNumber = item.batch;
             expiryDate = item.expiry_date || null;
@@ -230,11 +230,11 @@ router.post('/create',
             batchNumber = firstBatch.batch;
             expiryDate = firstBatch.expiry_date || null;
           }
-          
+
           if (isMixProduct && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0) {
             // Insert mix header item
             // console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId})`);
-            
+
             const [mixHeaderResult] = await connection.execute(
               `INSERT INTO caterer_sale_items
                (sale_id, product_id, product_name, quantity, unit, rate,
@@ -260,16 +260,16 @@ router.post('/create',
                 JSON.stringify(item.mixItems) // Store full mix data as JSON backup
               ]
             );
-            
+
             const mixHeaderId = mixHeaderResult.insertId;
-            
+
             // Insert individual mix items
             // console.log(`   └─ Inserting ${item.mixItems.length} items in mix...`);
             for (const mixItem of item.mixItems) {
               // Get batch info for mix item
               let mixItemBatch = null;
               let mixItemExpiry = null;
-              
+
               if (mixItem.batch) {
                 mixItemBatch = mixItem.batch;
                 mixItemExpiry = mixItem.expiry_date || null;
@@ -278,7 +278,7 @@ router.post('/create',
                 mixItemBatch = firstBatch.batch;
                 mixItemExpiry = firstBatch.expiry_date || null;
               }
-              
+
               await connection.execute(
                 `INSERT INTO caterer_sale_items
                  (sale_id, product_id, product_name, quantity, unit, rate,
@@ -305,7 +305,7 @@ router.post('/create',
                 ]
               );
             }
-            
+
             currentMixId++; // Increment mix ID for next mix product
           } else {
             // Regular product (non-mix)
@@ -338,7 +338,7 @@ router.post('/create',
         }
         console.log(`✅ Inserted all sale items`);
       }
-      
+
       // 3. Insert other charges
       if (saleData.other_charges && Array.isArray(saleData.other_charges) && saleData.other_charges.length > 0) {
         console.log(`📝 Inserting ${saleData.other_charges.length} other charges...`);
@@ -347,7 +347,7 @@ router.post('/create',
           if (chargeType === 'discount') {
             chargeType = charge.value_type === 'percentage' ? 'percentage' : 'fixed';
           }
-          
+
           await connection.execute(
             `INSERT INTO caterer_sale_other_charges
              (sale_id, charge_name, charge_amount, charge_type)
@@ -362,10 +362,10 @@ router.post('/create',
         }
         console.log(`✅ Inserted ${saleData.other_charges.length} other charges`);
       }
-      
+
       // 4. Insert payment record
       console.log('📝 Inserting payment record...');
-      
+
       // Calculate final payment status based on all payments
       const [[{ total_paid }]] = await connection.query(
         'SELECT COALESCE(SUM(payment_amount),0) AS total_paid FROM caterer_sale_payments WHERE sale_id = ?',
@@ -376,7 +376,7 @@ router.post('/create',
       let finalStatus = 'pending';
       if (remaining === 0 && Number(total_paid) > 0) finalStatus = 'paid';
       else if (Number(total_paid) > 0) finalStatus = 'partial';
-      
+
       console.log('📊 Final payment status calculation:', {
         grand_total: gt,
         total_paid: total_paid,
@@ -384,21 +384,21 @@ router.post('/create',
         finalStatus: finalStatus,
         logic: remaining === 0 && Number(total_paid) > 0 ? 'paid' : (Number(total_paid) > 0 ? 'partial' : 'pending')
       });
-      
+
       // Update payment status
       await connection.execute(
         'UPDATE caterer_sales SET payment_status = ? WHERE id = ?',
         [finalStatus, saleId]
       );
       console.log(`📊 Payment status updated to: ${finalStatus}`);
-      
+
       // Handle receipt image if present
       let receiptPath = null;
       if (saleData.receipt_image?.data) {
         receiptPath = await saveReceiptImage(saleData.receipt_image);
         console.log('📸 Receipt image saved:', receiptPath);
       }
-      
+
       await connection.execute(
         `INSERT INTO caterer_sale_payments
          (sale_id, payment_date, payment_method, payment_option, payment_amount, receipt_image)
@@ -413,64 +413,158 @@ router.post('/create',
         ]
       );
       console.log('✅ Payment record inserted');
-      
+
       // 5. Perform inventory deduction within the same transaction
       console.log('🔄 Starting inventory deduction for sale...');
       try {
         const { deductProductsFromInventory, checkInventorySufficiency } = require('../catererBillInventoryDeduction.cjs');
-        
+
         // Prepare inventory deduction data
+        // Need to restructure mix items: group mix components under their parent mix header
+        const processedItems = [];
+        const mixItemsMap = new Map(); // Track mix items by mixName
+
+        // First pass: collect all mix items grouped by mixName
+        for (const item of saleData.items) {
+          if (item.isMixItem && item.mixName) {
+            if (!mixItemsMap.has(item.mixName)) {
+              mixItemsMap.set(item.mixName, []);
+            }
+            mixItemsMap.get(item.mixName).push({
+              product_id: item.product_id,
+              product_name: item.product_name,
+              quantity: item.quantity,
+              unit: item.unit,
+              rate: item.rate,
+              batch_number: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null),
+              batch: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null)
+            });
+          }
+        }
+
+        // Second pass: build final items array with mix headers containing their components
+        for (const item of saleData.items) {
+          if (item.isMixHeader && item.mixName) {
+            // This is a mix header - add it with its components
+            const mixComponents = mixItemsMap.get(item.mixName) || [];
+            processedItems.push({
+              ...item,
+              isMix: true,
+              mixItems: mixComponents,
+              batch: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null)
+            });
+          } else if (!item.isMixItem) {
+            // Regular item (not part of a mix)
+            processedItems.push({
+              ...item,
+              batch: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null)
+            });
+          }
+          // Skip standalone mix items - they're already included in their parent mix header
+        }
+
         const inventoryData = {
           id: saleId,
           bill_number: saleData.bill_number,
-          items: saleData.items.map(item => ({
-            ...item,
-            batch: item.batch_number || item.batch || (item.batches && item.batches[0] ? item.batches[0].batch : null)
-          }))
+          items: processedItems
         };
-        
+
         console.log('📦 Preparing inventory deduction data:');
         console.log(`   Sale ID: ${inventoryData.id}`);
         console.log(`   Bill Number: ${inventoryData.bill_number}`);
         console.log(`   Items: ${inventoryData.items.length}`);
-        
+
         if (inventoryData.items && Array.isArray(inventoryData.items)) {
           inventoryData.items.forEach((item, index) => {
-            console.log(`   ${index + 1}. ${item.product_name} - Qty: ${item.quantity} - Product ID: ${item.product_id} - Batch: ${item.batch || 'N/A'}`);
+            if (item.isMix && item.mixItems) {
+              console.log(`   ${index + 1}. ${item.product_name} (MIX) - Qty: ${item.quantity} - Product ID: ${item.product_id}`);
+              item.mixItems.forEach((mixItem, mixIndex) => {
+                console.log(`      └─ ${mixIndex + 1}. ${mixItem.product_name} - Qty: ${mixItem.quantity} ${mixItem.unit} - Batch: ${mixItem.batch || 'N/A'}`);
+              });
+            } else {
+              console.log(`   ${index + 1}. ${item.product_name} - Qty: ${item.quantity} - Product ID: ${item.product_id} - Batch: ${item.batch || 'N/A'}`);
+            }
           });
         } else {
           console.log('   ⚠️ No items found in inventory data');
           throw new Error('No items found in bill data for inventory deduction');
         }
-        
+
         // Pre-check inventory sufficiency before attempting deduction
         console.log('🔍 Pre-checking inventory sufficiency...');
+
+        // Build a map of product quantities (aggregate all items including mix components)
+        const productQuantityMap = new Map();
+
         for (const item of inventoryData.items) {
-          if (item.quantity > 0 && item.product_id) {
-            const sufficiencyCheck = await checkInventorySufficiency(
-              item.product_id,
-              item.quantity
-            );
-            
-            console.log(`   ${item.product_name}:`);
-            console.log(`      Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
-            
-            if (!sufficiencyCheck.isSufficient) {
-              console.error(`   ❌ INSUFFICIENT INVENTORY for ${item.product_name}`);
-              console.error(`      Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
-              console.error(`      Deficit: ${sufficiencyCheck.deficit}`);
-              throw new Error(`Insufficient inventory for product ${item.product_name}. Required: ${item.quantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+          // If this is a mix product, process its components
+          if (item.isMix && item.mixItems && Array.isArray(item.mixItems)) {
+            console.log(`   📦 Processing mix: ${item.product_name} with ${item.mixItems.length} components`);
+
+            for (const mixItem of item.mixItems) {
+              if (mixItem.product_id && !String(mixItem.product_id).startsWith('mix-')) {
+                const productId = parseInt(mixItem.product_id);
+                const quantity = parseFloat(mixItem.quantity) || 0;
+
+                if (productQuantityMap.has(productId)) {
+                  productQuantityMap.set(productId, productQuantityMap.get(productId) + quantity);
+                } else {
+                  productQuantityMap.set(productId, quantity);
+                }
+
+                console.log(`      └─ Product ${productId} (${mixItem.product_name}): ${quantity} ${mixItem.unit} (Total so far: ${productQuantityMap.get(productId)})`);
+              }
             }
-            
-            console.log(`   ✅ Sufficient inventory confirmed`);
           }
+          // Regular product (not a mix)
+          else if (item.product_id && !String(item.product_id).startsWith('mix-')) {
+            const productId = parseInt(item.product_id);
+            const quantity = parseFloat(item.quantity) || 0;
+
+            if (productQuantityMap.has(productId)) {
+              productQuantityMap.set(productId, productQuantityMap.get(productId) + quantity);
+            } else {
+              productQuantityMap.set(productId, quantity);
+            }
+
+            console.log(`   📊 Product ${productId} (${item.product_name}): ${quantity} ${item.unit} (Total so far: ${productQuantityMap.get(productId)})`);
+          }
+        }
+
+        console.log(`   📋 Total unique products to check: ${productQuantityMap.size}`);
+
+        // Now check inventory sufficiency for each unique product
+        for (const [productId, requiredQuantity] of productQuantityMap.entries()) {
+          const sufficiencyCheck = await checkInventorySufficiency(
+            productId,
+            requiredQuantity
+          );
+
+          // Get product name for better error messages
+          const [productInfo] = await connection.execute(
+            'SELECT name FROM products WHERE id = ?',
+            [productId]
+          );
+          const productName = productInfo.length > 0 ? productInfo[0].name : `Product ${productId}`;
+
+          console.log(`   ${productName}:`);
+          console.log(`      Required: ${requiredQuantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+
+          if (!sufficiencyCheck.isSufficient) {
+            console.error(`   ❌ INSUFFICIENT INVENTORY for ${productName}`);
+            console.error(`      Required: ${requiredQuantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+            console.error(`      Deficit: ${sufficiencyCheck.deficit}`);
+            throw new Error(`Insufficient inventory for product ${productName}. Required: ${requiredQuantity}, Available: ${sufficiencyCheck.availableQuantity}`);
+          }
+
+          console.log(`   ✅ Sufficient inventory confirmed`);
         }
         // Perform inventory deduction
         console.log('🔄 Performing inventory deduction...');
         await deductProductsFromInventory(inventoryData);
         console.log('✅ Inventory deduction completed successfully');
         console.log('✅ All inventory deductions verified successfully');
-        
+
       } catch (deductionError) {
         console.error('❌ INVENTORY DEDUCTION FAILED');
         console.error('❌ Error message:', deductionError.message);
@@ -479,13 +573,13 @@ router.post('/create',
         console.error('❌ No bill will be created to maintain data integrity');
         throw deductionError; // This will cause the transaction to rollback
       }
-      
+
       // Commit the transaction only if everything succeeds
       console.log('🎯 All validations passed - committing transaction...');
       await connection.commit();
       console.log('✅ TRANSACTION COMMITTED SUCCESSFULLY');
       console.log('✅ Bill created and inventory deducted - database is consistent');
-      
+
       const responseData = {
         success: true,
         message: 'Sale created successfully',
@@ -494,16 +588,16 @@ router.post('/create',
         grand_total: saleData.grand_total,
         createdAt: timestamp
       };
-      
+
       console.log('📤 Sale creation response:', responseData);
       res.status(201).json(responseData);
-      
+
     } catch (error) {
       if (connection) {
         await connection.rollback();
         console.error('🔄 Transaction rolled back due to error:', error.message);
       }
-      
+
       console.error('❌ Error creating sale:', {
         message: error.message,
         code: error.code,
@@ -513,11 +607,11 @@ router.post('/create',
         sql: error.sql,
         stack: error.stack
       });
-      
+
       // Provide more specific error messages based on the error type
       let errorMessage = 'Failed to create sale';
       let errorType = 'UNKNOWN_ERROR';
-      
+
       if (error.message.includes('inventory') || error.message.includes('deduction')) {
         errorMessage = 'Failed to deduct products from inventory. Sale not created.';
         errorType = 'INVENTORY_DEDUCTION_FAILED';
@@ -531,7 +625,7 @@ router.post('/create',
         errorMessage = 'Duplicate bill number. Please try again.';
         errorType = 'DUPLICATE_BILL_NUMBER';
       }
-      
+
       res.status(500).json({
         success: false,
         message: errorMessage,
@@ -563,7 +657,7 @@ router.get('/caterer/:caterer_id', logRequest, async (req, res) => {
        ORDER BY cs.sell_date DESC, cs.created_at DESC`,
       [req.params.caterer_id]
     );
-    
+
     res.json({
       success: true,
       sales,
@@ -587,31 +681,31 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
       'SELECT * FROM caterer_sales WHERE id = ?',
       [req.params.sale_id]
     );
-    
+
     if (sales.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Sale not found'
       });
     }
-    
+
     // Get all sale items
     const [allItems] = await db.pool.execute(
       'SELECT * FROM caterer_sale_items WHERE sale_id = ? ORDER BY id',
       [req.params.sale_id]
     );
-    
+
     // ONLY RETURN PARENT ITEMS (parent_sale_item_id IS NULL)
     const parentItems = allItems.filter(item => item.parent_sale_item_id === null);
-    
+
     const processedItems = parentItems.map(item => {
       // If this is a mix header (is_mix = 1), find its children
       if (item.is_mix === 1) {
-        const mixComponents = allItems.filter(childItem => 
-          childItem.parent_sale_item_id === item.id && 
+        const mixComponents = allItems.filter(childItem =>
+          childItem.parent_sale_item_id === item.id &&
           childItem.mix_id === item.mix_id
         );
-        
+
         return {
           ...item,
           is_mix: true,
@@ -627,26 +721,26 @@ router.get('/:sale_id/details', logRequest, async (req, res) => {
           }))
         };
       }
-      
+
       // Regular item (not a mix)
       return {
         ...item,
         is_mix: false
       };
     });
-    
+
     // Get payments
     const [payments] = await db.pool.execute(
       'SELECT * FROM caterer_sale_payments WHERE sale_id = ?',
       [req.params.sale_id]
     );
-    
+
     // Get other charges
     const [charges] = await db.pool.execute(
       'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ?',
       [req.params.sale_id]
     );
-    
+
     res.json({
       success: true,
       sale: {
@@ -673,16 +767,16 @@ router.get('/next-bill-number', logRequest, async (req, res) => {
       `SELECT bill_number FROM caterer_sales 
        ORDER BY id DESC LIMIT 1`
     );
-    
+
     let nextBillNumber = '#0001';
-    
+
     if (result.length > 0) {
       const lastBillNumber = result[0].bill_number;
       const numberPart = parseInt(lastBillNumber.replace('#', ''));
       const nextNumber = numberPart + 1;
       nextBillNumber = `#${String(nextNumber).padStart(4, '0')}`;
     }
-    
+
     res.json({
       success: true,
       bill_number: nextBillNumber
@@ -700,7 +794,7 @@ router.get('/next-bill-number', logRequest, async (req, res) => {
 router.get('/', logRequest, async (req, res) => {
   try {
     console.log('📊 Fetching all caterer sales with details...');
-    
+
     const [sales] = await db.pool.execute(`
       SELECT cs.*,
              c.caterer_name,
@@ -720,9 +814,9 @@ router.get('/', logRequest, async (req, res) => {
       LEFT JOIN caterers c ON cs.caterer_id = c.id
       ORDER BY cs.sell_date DESC, cs.created_at DESC
     `);
-    
+
     console.log(`✅ Found ${sales.length} sales, fetching related data...`);
-    
+
     const salesWithDetails = await Promise.all(
       sales.map(async (sale) => {
         // Get all sale items
@@ -732,18 +826,18 @@ router.get('/', logRequest, async (req, res) => {
            ORDER BY id`,
           [sale.id]
         );
-        
+
         // ONLY RETURN PARENT ITEMS (parent_sale_item_id IS NULL)
         const parentItems = allItems.filter(item => item.parent_sale_item_id === null);
-        
+
         const processedItems = parentItems.map(item => {
           // If this is a mix header (is_mix = 1), find its children
           if (item.is_mix === 1) {
-            const mixComponents = allItems.filter(childItem => 
-              childItem.parent_sale_item_id === item.id && 
+            const mixComponents = allItems.filter(childItem =>
+              childItem.parent_sale_item_id === item.id &&
               childItem.mix_id === item.mix_id
             );
-            
+
             return {
               ...item,
               is_mix: true,
@@ -759,26 +853,26 @@ router.get('/', logRequest, async (req, res) => {
               }))
             };
           }
-          
+
           // Regular item (not a mix)
           return {
             ...item,
             is_mix: false
           };
         });
-        
+
         // Get payments
         const [payments] = await db.pool.execute(
           'SELECT * FROM caterer_sale_payments WHERE sale_id = ? ORDER BY payment_date DESC, created_at DESC',
           [sale.id]
         );
-        
+
         // Get other charges
         const [charges] = await db.pool.execute(
           'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ? ORDER BY id',
           [sale.id]
         );
-        
+
         return {
           ...sale,
           items: processedItems,
@@ -787,9 +881,9 @@ router.get('/', logRequest, async (req, res) => {
         };
       })
     );
-    
+
     console.log(`✅ Successfully fetched complete details for ${salesWithDetails.length} sales`);
-    
+
     res.json({
       success: true,
       data: salesWithDetails,
@@ -864,9 +958,9 @@ router.use('*', (req, res) => {
 router.get('/receipts/:filename', (req, res) => {
   const filename = req.params.filename;
   const imagePath = path.join(__dirname, '..', 'assets', 'receipts', filename);
-  
+
   console.log('📸 Serving receipt image:', imagePath);
-  
+
   res.sendFile(imagePath, (err) => {
     if (err) {
       console.error('❌ Error serving receipt image:', err);

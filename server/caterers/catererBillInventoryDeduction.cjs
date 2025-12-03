@@ -66,7 +66,7 @@ const deductProductsFromInventory = async (billData) => {
     console.log(`🔍 Performing consistency check...`);
     try {
       const [deductions] = await connection.execute(`
-        SELECT COUNT(DISTINCT product_id) as unique_products_deducted
+        SELECT COUNT(*) as unique_products_deducted
         FROM inventory_history
         WHERE notes LIKE ? AND quantity < 0
       `, [`%Caterer sale deduction - Sale ID: ${billData.id}%`]);

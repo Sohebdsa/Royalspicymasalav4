@@ -18,12 +18,12 @@ import { useToast } from '../../contexts/ToastContext';
 const InventoryHistoryPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
-  
+
   const [history, setHistory] = useState([]);
   const [filteredHistory, setFilteredHistory] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
@@ -92,7 +92,7 @@ const InventoryHistoryPage = () => {
 
     // Filter by product
     if (selectedProduct) {
-      filtered = filtered.filter(item => 
+      filtered = filtered.filter(item =>
         item.product_id === parseInt(selectedProduct)
       );
     }
@@ -104,13 +104,13 @@ const InventoryHistoryPage = () => {
 
     // Filter by date range
     if (dateFrom) {
-      filtered = filtered.filter(item => 
+      filtered = filtered.filter(item =>
         new Date(item.created_at) >= new Date(dateFrom)
       );
     }
 
     if (dateTo) {
-      filtered = filtered.filter(item => 
+      filtered = filtered.filter(item =>
         new Date(item.created_at) <= new Date(dateTo)
       );
     }
@@ -338,7 +338,7 @@ const InventoryHistoryPage = () => {
               <ClockIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No history found</h3>
               <p className="text-gray-600">
-                {history.length === 0 
+                {history.length === 0
                   ? "No inventory movements have been recorded yet."
                   : "Try adjusting your filters to see more results."
                 }
@@ -394,14 +394,13 @@ const InventoryHistoryPage = () => {
                           {entry.action === 'added' || entry.action === 'updated' ? (
                             <span className="text-green-600 mr-1">+</span>
                           ) : entry.action === 'deducted' ? (
-                            <span className="text-red-600 mr-1">-</span>
+                            <span className="text-red-600 mr-1"></span>
                           ) : (
                             <span className="text-gray-600 mr-1">~</span>
                           )}
-                          <span className={`${
-                            entry.action === 'added' || entry.action === 'updated' ? 'text-green-900' :
+                          <span className={`${entry.action === 'added' || entry.action === 'updated' ? 'text-green-900' :
                             entry.action === 'deducted' ? 'text-red-900' : 'text-gray-900'
-                          }`}>
+                            }`}>
                             {formatQuantity(entry.quantity, entry.unit)}
                           </span>
                         </div>
@@ -411,14 +410,13 @@ const InventoryHistoryPage = () => {
                           {entry.action === 'added' || entry.action === 'updated' ? (
                             <span className="text-green-600 mr-1">+</span>
                           ) : entry.action === 'deducted' ? (
-                            <span className="text-red-600 mr-1">-</span>
+                            <span className="text-red-600 mr-1"></span>
                           ) : (
                             <span className="text-gray-600 mr-1">~</span>
                           )}
-                          <span className={`${
-                            entry.action === 'added' || entry.action === 'updated' ? 'text-green-900' :
+                          <span className={`${entry.action === 'added' || entry.action === 'updated' ? 'text-green-900' :
                             entry.action === 'deducted' ? 'text-red-900' : 'text-gray-900'
-                          }`}>
+                            }`}>
                             {formatCurrency(entry.value)}
                           </span>
                         </div>

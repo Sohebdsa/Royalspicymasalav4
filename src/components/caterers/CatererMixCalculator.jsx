@@ -109,7 +109,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
     if (selectedProducts.find(p => p.id === product.id)) {
       return; // Already added
     }
-    
+
     // If product is from a mix, add the parent mix product instead
     if (product.isFromMix && product.parentMixId) {
       const parentMix = products.find(p => p.id === product.parentMixId);
@@ -119,7 +119,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
     } else {
       setSelectedProducts(prev => [...prev, product]);
     }
-    
+
     setErrors(prev => ({ ...prev, products: null }));
     setDropdownOpen(false);
     setSearchTerm('');
@@ -168,7 +168,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
   // Add mix to cart - directly adds mix to parent component
   const handleAddMixToCart = useCallback(() => {
     if (!validateMix() || !mixCalculation) return;
-    
+
     // Generate mix data for parent component
     const mixData = {
       mixProducts: mixCalculation.mixItems.map(item => ({
@@ -182,7 +182,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
       totalBudget: Number(totalBudget),
       mixItems: mixCalculation.mixItems
     };
-    
+
     onBatchSelectionComplete(mixData);
     onClose();
   }, [validateMix, mixCalculation, onBatchSelectionComplete, onClose, mixName, totalBudget]);
@@ -212,7 +212,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
             isMixProduct: true,
             displayName: `${product.name} (Mix - ${mixProducts.length} items)`
           });
-          
+
           // Add individual products from the mix
           mixProducts.forEach(mixProduct => {
             expandedProducts.push({
@@ -365,9 +365,8 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
                               >
                                 <div className="flex items-center gap-2 flex-1">
                                   <ChevronRight
-                                    className={`h-4 w-4 text-gray-500 transition-transform ${
-                                      expandedMixProducts.has(product.id) ? 'rotate-90' : ''
-                                    }`}
+                                    className={`h-4 w-4 text-gray-500 transition-transform ${expandedMixProducts.has(product.id) ? 'rotate-90' : ''
+                                      }`}
                                   />
                                   <div className="flex-1">
                                     <div className="font-medium text-gray-900 text-sm">{product.displayName}</div>
@@ -387,7 +386,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
                                   Add Mix
                                 </button>
                               </div>
-                              
+
                               {/* Mix Products List (Expanded) */}
                               {expandedMixProducts.has(product.id) && (
                                 <div className="ml-6 border-l-2 border-gray-200">
@@ -565,7 +564,7 @@ const CatererMixCalculator = ({ onClose, products = [], onBatchSelectionComplete
             className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             <ShoppingCart className="h-4 w-4" />
-            Add {mixName || 'Custom Mix'} to Cart
+            Add to Cart
           </button>
         </div>
       </div>
