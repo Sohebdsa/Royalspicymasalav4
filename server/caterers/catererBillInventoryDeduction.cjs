@@ -409,10 +409,12 @@ const processRegularProductDeduction = async (connection, item, saleId) => {
   console.log(`   🔧 Updating inventory summary...`);
 
   // Calculate totals from current batch quantities (only positive quantities)
+  // Use the actual cost_per_kg from batches, not value/quantity
   const [calculationResult] = await connection.execute(
     `SELECT
        SUM(i.quantity) as total_quantity,
        SUM(i.value) as total_value,
+       SUM(i.cost_per_kg * i.quantity) / NULLIF(SUM(i.quantity), 0) as average_cost_per_kg,
        i.unit,
        i.product_name
      FROM inventory i
@@ -422,13 +424,12 @@ const processRegularProductDeduction = async (connection, item, saleId) => {
   );
 
   if (calculationResult.length > 0) {
-    const { total_quantity, total_value, unit, product_name } = calculationResult[0];
-    const average_cost_per_kg = total_quantity > 0 ? total_value / total_quantity : 0;
+    const { total_quantity, total_value, average_cost_per_kg, unit, product_name } = calculationResult[0];
 
     console.log(`   📊 Calculated from current batches:`);
     console.log(`      Total quantity: ${total_quantity} kg`);
     console.log(`      Total value: ₹${total_value}`);
-    console.log(`      Average cost: ₹${average_cost_per_kg}/kg`);
+    console.log(`      Average cost (from batch purchase): ₹${average_cost_per_kg}/kg`);
     console.log(`      Unit: ${unit}`);
     console.log(`      Product: ${product_name}`);
 
@@ -448,7 +449,7 @@ const processRegularProductDeduction = async (connection, item, saleId) => {
         product_name,
         total_quantity,
         total_value,
-        average_cost_per_kg,
+        average_cost_per_kg || 0,
         unit
       ]
     );

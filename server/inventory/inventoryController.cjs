@@ -83,21 +83,11 @@ const getInventorySummary = async (req, res) => {
             WHEN i.action = 'deducted' THEN -i.value
             ELSE 0
           END) as total_value,
+          -- Use the actual cost_per_kg from the batch purchase (weighted average of 'added' actions)
           CASE
-            WHEN SUM(CASE
-              WHEN i.action = 'added' OR i.action = 'updated' OR i.action = 'merged' THEN i.quantity
-              WHEN i.action = 'deducted' THEN -i.quantity
-              ELSE 0
-            END) > 0 THEN
-              SUM(CASE
-                WHEN i.action = 'added' OR i.action = 'updated' OR i.action = 'merged' THEN i.value
-                WHEN i.action = 'deducted' THEN -i.value
-                ELSE 0
-              END) / SUM(CASE
-                WHEN i.action = 'added' OR i.action = 'updated' OR i.action = 'merged' THEN i.quantity
-                WHEN i.action = 'deducted' THEN -i.quantity
-                ELSE 0
-              END)
+            WHEN SUM(CASE WHEN i.action = 'added' THEN i.quantity ELSE 0 END) > 0 THEN
+              SUM(CASE WHEN i.action = 'added' THEN i.cost_per_kg * i.quantity ELSE 0 END) / 
+              SUM(CASE WHEN i.action = 'added' THEN i.quantity ELSE 0 END)
             ELSE 0
           END as cost_per_kg,
           MAX(i.created_at) as last_updated
