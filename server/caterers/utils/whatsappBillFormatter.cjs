@@ -15,15 +15,15 @@ function formatBillForWhatsApp(billData) {
 
     // Header
     billText += '━━━━━━━━━━━━━━━━━━━━━\n';
-    billText += '🧾 *ROYAL SPICY MASALA*\n';
+    billText += ' *ROYAL SPICY MASALA*\n';
     billText += '━━━━━━━━━━━━━━━━━━━━━\n\n';
 
     // Bill Information
-    billText += `📋 *Bill No:* ${sale.bill_number}\n`;
-    billText += `📅 *Date:* ${formatDate(sale.sell_date)}\n\n`;
+    billText += ` *Bill No:* ${sale.bill_number}\n`;
+    billText += ` *Date:* ${formatDate(sale.sell_date)}\n\n`;
 
     // Caterer Information
-    billText += '👤 *CATERER DETAILS*\n';
+    billText += ' *CATERER DETAILS*\n';
     billText += `Name: ${caterer.caterer_name}\n`;
     if (caterer.contact_person) {
         billText += `Contact: ${caterer.contact_person}\n`;
@@ -38,12 +38,16 @@ function formatBillForWhatsApp(billData) {
 
     // Items Section
     billText += '━━━━━━━━━━━━━━━━━━━━━\n';
-    billText += '📦 *ITEMS*\n';
+    billText += '*ITEMS*\n';
     billText += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+    // Filter out child items (items that are part of a mix)
+    // Only process top-level items (regular products and mix products themselves)
+    const topLevelItems = items.filter(item => !item.parent_sale_item_id);
 
     // Process items
     let itemNumber = 1;
-    for (const item of items) {
+    for (const item of topLevelItems) {
         if (item.is_mix && item.mix_items && item.mix_items.length > 0) {
             // Mix product
             billText += `${itemNumber}. *${item.product_name}*\n`;
@@ -76,7 +80,7 @@ function formatBillForWhatsApp(billData) {
 
     // Totals Section
     billText += '━━━━━━━━━━━━━━━━━━━━━\n';
-    billText += '💰 *BILL SUMMARY*\n';
+    billText += ' *BILL SUMMARY*\n';
     billText += '━━━━━━━━━━━━━━━━━━━━━\n\n';
 
     billText += `Subtotal: ₹${formatAmount(sale.subtotal)}\n`;
@@ -103,7 +107,7 @@ function formatBillForWhatsApp(billData) {
     // Payment Information
     if (payments && payments.length > 0) {
         billText += '━━━━━━━━━━━━━━━━━━━━━\n';
-        billText += '💳 *PAYMENT DETAILS*\n';
+        billText += ' *PAYMENT DETAILS*\n';
         billText += '━━━━━━━━━━━━━━━━━━━━━\n\n';
 
         let totalPaid = 0;

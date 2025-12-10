@@ -204,12 +204,17 @@ router.post('/create',
           const gstAmount = item.gst_amount || 0;
           const totalAmount = item.isMix || item.total ? parseFloat(item.total || amount) : (amount + gstAmount);
 
-          // Check if this is a mix product
-          const isMixProduct = item.isMix || (item.product_id && item.product_id.toString().startsWith('mix-'));
+          // Check if this is a mix product header
+          const isMixProduct = item.isMixHeader || (item.product_id && item.product_id.toString().startsWith('mix-'));
 
-          // Get mix items from various possible locations
+          // Get mix items - if this is a mix header, find all items with matching mixName
           let mixItems = null;
-          if (item.mixItems && Array.isArray(item.mixItems)) {
+          if (isMixProduct && item.mixName) {
+            // Find all items in the items array that belong to this mix
+            mixItems = saleData.items.filter(i =>
+              i.isMixItem && i.mixName === item.mixName
+            );
+          } else if (item.mixItems && Array.isArray(item.mixItems)) {
             mixItems = item.mixItems;
           } else if (item.components && Array.isArray(item.components)) {
             mixItems = item.components;
@@ -232,6 +237,11 @@ router.post('/create',
             const firstBatch = item.batches[0];
             batchNumber = firstBatch.batch;
             expiryDate = firstBatch.expiry_date || null;
+          }
+
+          // Skip individual mix items - they will be inserted as children of their parent mix header
+          if (item.isMixItem && !isMixProduct) {
+            continue;
           }
 
           if (isMixProduct && mixItems && mixItems.length > 0) {
