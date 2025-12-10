@@ -725,12 +725,7 @@ const CatererSellComponent = () => {
         return;
       }
 
-      // Clean phone number (remove spaces, dashes, etc.)
       const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-
-      // Open WhatsApp Web with the message
-      // Use WhatsApp Web URL format: https://web.whatsapp.com/send?phone=PHONE&text=MESSAGE
-      // Or use WhatsApp app URL format: https://wa.me/PHONE?text=MESSAGE
       const whatsappUrl = `https://wa.me/${cleanPhone}?text=${message}`;
 
       // Open in new window
