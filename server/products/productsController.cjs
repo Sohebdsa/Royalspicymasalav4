@@ -7,16 +7,16 @@ const fs = require('fs');
 const getCategories = async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    
+
     const [categories] = await connection.execute(`
       SELECT id, name, description, is_active
       FROM categories 
       WHERE is_active = 1
       ORDER BY name ASC
     `);
-    
+
     connection.release();
-    
+
     res.json({
       success: true,
       data: categories,
@@ -36,7 +36,7 @@ const getCategories = async (req, res) => {
 const getProducts = async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    
+
     const [products] = await connection.execute(`
       SELECT
         p.id,
@@ -54,15 +54,16 @@ const getProducts = async (req, res) => {
         p.created_at,
         p.updated_at,
         COALESCE(inv.total_quantity, 0) as available_quantity,
-        COALESCE(inv.total_value, 0) as inventory_value
+        COALESCE(inv.total_value, 0) as inventory_value,
+        COALESCE(inv.average_cost_per_kg, 0) as average_cost_per_kg
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN inventory_summary inv ON p.id = inv.product_id
       ORDER BY p.created_at DESC
     `);
-    
+
     connection.release();
-    
+
     res.json({
       success: true,
       data: products,
@@ -95,7 +96,7 @@ const createProduct = async (req, res) => {
 
     // Get uploaded files
     const uploadedFiles = req.files || [];
-    
+
     // Validate required fields
     if (!name || name.trim() === '') {
       return res.status(400).json({
@@ -103,7 +104,7 @@ const createProduct = async (req, res) => {
         message: 'Product name is required'
       });
     }
-    
+
     if (!categoryId) {
       // Delete uploaded files if validation fails
       deleteUploadedFiles(uploadedFiles);
@@ -119,15 +120,15 @@ const createProduct = async (req, res) => {
         message: 'At least one product image is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
-    
+
     // Check if category exists
     const [categoryExists] = await connection.execute(
       'SELECT id FROM categories WHERE id = ?',
       [categoryId]
     );
-    
+
     if (categoryExists.length === 0) {
       connection.release();
       return res.status(400).json({
@@ -135,13 +136,13 @@ const createProduct = async (req, res) => {
         message: 'Selected category does not exist'
       });
     }
-    
+
     // Check if product with same name already exists
     const [existingProduct] = await connection.execute(
       'SELECT id FROM products WHERE name = ?',
       [name.trim()]
     );
-    
+
     if (existingProduct.length > 0) {
       connection.release();
       // Delete uploaded files if product already exists
@@ -190,7 +191,7 @@ const createProduct = async (req, res) => {
       'UPDATE products SET product_images = ? WHERE id = ?',
       [JSON.stringify(imageUrls), productId]
     );
-    
+
     // Get the created product with category information
     const [newProduct] = await connection.execute(`
       SELECT
@@ -211,9 +212,9 @@ const createProduct = async (req, res) => {
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE p.id = ?
     `, [productId]);
-    
+
     connection.release();
-    
+
     res.status(201).json({
       success: true,
       data: newProduct[0],
@@ -252,7 +253,7 @@ const updateProduct = async (req, res) => {
 
     // Get uploaded files (optional for updates)
     const uploadedFiles = req.files || [];
-    
+
     // Validate required fields
     if (!name || name.trim() === '') {
       return res.status(400).json({
@@ -260,14 +261,14 @@ const updateProduct = async (req, res) => {
         message: 'Product name is required'
       });
     }
-    
+
     if (!categoryId) {
       return res.status(400).json({
         success: false,
         message: 'Category is required'
       });
     }
-    
+
     connection = await pool.getConnection();
 
     // Check if product exists and get current images
@@ -286,7 +287,7 @@ const updateProduct = async (req, res) => {
         message: 'Product not found'
       });
     }
-    
+
     // Check if category exists
     const [categoryExists] = await connection.execute(
       'SELECT id FROM categories WHERE id = ?',
@@ -425,7 +426,7 @@ const updateProduct = async (req, res) => {
         imageUrls = []; // Default to empty array if parsing fails
       }
     }
-    
+
     // Update product
     await connection.execute(`
       UPDATE products
@@ -455,7 +456,7 @@ const updateProduct = async (req, res) => {
       isActive === '1' || isActive === 'true' || isActive === true ? 1 : 0,
       id
     ]);
-    
+
     // Get updated product with category information
     const [updatedProduct] = await connection.execute(`
       SELECT 
@@ -477,7 +478,7 @@ const updateProduct = async (req, res) => {
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE p.id = ?
     `, [id]);
-    
+
     res.json({
       success: true,
       data: updatedProduct[0],

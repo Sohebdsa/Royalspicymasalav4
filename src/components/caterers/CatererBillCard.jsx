@@ -55,7 +55,7 @@ const rupee = (v) =>
 
 const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const { showSuccess, showError, showInfo } = useToast();
-  
+
   // State Management
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedMix, setExpandedMix] = useState({});
@@ -84,7 +84,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   // Status Badge Component
   const getStatusPill = (status) => {
     let actualStatus = status;
-    
+
     if (pendingAmount <= 0) {
       actualStatus = 'paid';
     } else if (totalPaid <= 0) {
@@ -129,7 +129,22 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
   const isMixProduct = (item) => {
     const hasFlag = item?.is_mix === true || item?.is_mix === 1;
     const hasChildren = Array.isArray(item?.mix_items) && item?.mix_items.length > 0;
-    return hasFlag && hasChildren;
+    const result = hasFlag && hasChildren;
+
+    // Debug logging
+    if (item?.product_name?.toLowerCase().includes('mix')) {
+      console.log('🔍 Mix Product Detection:', {
+        product_name: item?.product_name,
+        is_mix: item?.is_mix,
+        hasFlag,
+        mix_items_length: item?.mix_items?.length,
+        hasChildren,
+        result,
+        full_item: item
+      });
+    }
+
+    return result;
   };
 
   // Event Handlers
@@ -140,6 +155,8 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
 
   const toggleMix = (e, key) => {
     e?.stopPropagation();
+    e?.preventDefault();
+    console.log('🔄 Toggling mix:', key, 'Current state:', expandedMix[key]);
     setExpandedMix((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -162,18 +179,18 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
         method: 'POST',
         body: formData
       });
-      
+
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         throw new Error('Server returned an invalid response');
       }
-      
+
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || result.message || `Server error: ${response.status}`);
       }
-      
+
       if (result.success) {
         showSuccess('Payment recorded successfully');
         setShowPaymentDialog(false);
@@ -244,9 +261,9 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                     <h3 className="text-lg font-semibold text-gray-900">{bill?.bill_number || 'N/A'}</h3>
                     <button
                       type="button"
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        copyBillNumber(); 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyBillNumber();
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -335,7 +352,7 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                 Sale Items
               </h4>
 
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                 {Array.isArray(bill?.items) && bill.items.length > 0 ? (
                   bill.items.map((item, idx) => {
                     const key = item?.id ?? `item-${bill.id}-${idx}`;
@@ -343,96 +360,130 @@ const CatererBillCard = ({ bill, onPaymentUpdate }) => {
                     const open = !!expandedMix[key];
 
                     return (
-                      <div key={key} className="rounded-md bg-white border border-gray-200 p-3">
-                        <div className="flex justify-between">
-                          <div className="flex-1 flex items-start">
-                            {/* ❌ REMOVED: Numbered badge for main products */}
-                            
-                            {/* Mix Toggle Button */}
-                            <div className="w-5 pt-1">
-                              {mix && (
+                      <div
+                        key={key}
+                        className={`rounded-lg bg-white border-2 transition-all duration-200 ${mix
+                          ? open
+                            ? 'border-orange-300 shadow-md'
+                            : 'border-orange-200 hover:border-orange-300 hover:shadow-sm'
+                          : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                      >
+                        <div className="p-3">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 flex items-start gap-2">
+                              {/* Mix Toggle Button - More Prominent */}
+                              {mix ? (
                                 <button
                                   type="button"
                                   onClick={(e) => toggleMix(e, key)}
-                                  className="text-orange-600 hover:text-orange-700"
+                                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-orange-100 text-orange-600 hover:bg-orange-200 hover:text-orange-700 transition-colors"
                                   aria-expanded={open}
                                   aria-controls={`mix-${key}`}
-                                  title="Toggle mix contents"
+                                  title={open ? "Collapse mix contents" : "Expand mix contents"}
                                 >
-                                  {open ? <ChevronDownIcon className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
+                                  {open ? (
+                                    <ChevronDownIcon className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRightIcon className="h-4 w-4" />
+                                  )}
                                 </button>
+                              ) : (
+                                <div className="w-6" />
+                              )}
+
+                              {/* Product Details */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-gray-900">{item?.product_name || 'Unknown Product'}</span>
+                                  {mix && (
+                                    <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium border border-orange-200">
+                                      <CubeIcon className="h-3 w-3 mr-1" />
+                                      Mix ({item?.mix_items?.length} items)
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-600 mt-1">
+                                  {parseFloat(item?.quantity || 0).toFixed(3)} {item?.unit || 'unit'} × {rupee(item?.rate || 0)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Price */}
+                            <div className="text-right flex-shrink-0 ml-3">
+                              <div className="font-semibold text-gray-900">{rupee(item?.total_amount || 0)}</div>
+                              {parseFloat(item?.gst_amount || 0) > 0 && (
+                                <div className="text-xs text-gray-500">GST: {rupee(item?.gst_amount || 0)}</div>
                               )}
                             </div>
-
-                            {/* Product Details */}
-                            <div className="ml-2 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-gray-900">{item?.product_name || 'Unknown Product'}</span>
-                                {mix && (
-                                  <span className="inline-flex items-center text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">
-                                    <CubeIcon className="h-3 w-3 mr-1" />
-                                    Mix ({item?.mix_items?.length})
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-gray-600 mt-0.5">
-                                {parseFloat(item?.quantity || 0).toFixed(3)} {item?.unit || 'unit'} × {rupee(item?.rate || 0)}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Price */}
-                          <div className="text-right flex-shrink-0 ml-3">
-                            <div className="font-semibold text-gray-900">{rupee(item?.total_amount || 0)}</div>
-                            {parseFloat(item?.gst_amount || 0) > 0 && (
-                              <div className="text-xs text-gray-500">GST: {rupee(item?.gst_amount || 0)}</div>
-                            )}
                           </div>
                         </div>
 
-                        {/* Mix Items Expansion - KEEP NUMBERING HERE */}
+                        {/* Mix Items Expansion - Enhanced with Animation */}
                         {mix && open && (
-                          <div id={`mix-${key}`} className="mt-3 rounded-md border border-orange-200 bg-orange-50">
-                            <div className="px-3 py-2 border-b border-orange-200 text-xs font-semibold text-orange-900 flex items-center">
-                              <CubeIcon className="h-3.5 w-3.5 mr-1.5" />
-                              Mix Contents ({item?.mix_items?.length || 0})
+                          <div
+                            id={`mix-${key}`}
+                            className="border-t-2 border-orange-200 bg-gradient-to-b from-orange-50 to-orange-50/50 animate-in slide-in-from-top-2 duration-200"
+                          >
+                            <div className="px-4 py-2.5 border-b border-orange-200 bg-orange-100/50">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center text-xs font-semibold text-orange-900">
+                                  <CubeIcon className="h-4 w-4 mr-1.5" />
+                                  Mix Contents
+                                </div>
+                                <span className="text-xs text-orange-700 font-medium">
+                                  {item?.mix_items?.length || 0} component{item?.mix_items?.length !== 1 ? 's' : ''}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="divide-y divide-orange-200">
+                            <div className="divide-y divide-orange-200/50">
                               {Array.isArray(item?.mix_items) && item.mix_items.length > 0 ? (
                                 item.mix_items.map((m, mIdx) => (
-                                  <div key={`mix-${key}-${mIdx}`} className="px-3 py-2 flex items-start justify-between text-xs">
-                                    <div className="pr-2 flex items-start flex-1">
-                                      {/* ✅ KEEP: Numbered dot for mix items only */}
-                                      <div className="flex-shrink-0 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-[10px] font-semibold mr-2 mt-0.5">
+                                  <div
+                                    key={`mix-${key}-${mIdx}`}
+                                    className="px-4 py-3 flex items-start justify-between hover:bg-orange-100/30 transition-colors"
+                                  >
+                                    <div className="pr-3 flex items-start flex-1 gap-2.5">
+                                      {/* Numbered badge for mix items */}
+                                      <div className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs font-semibold shadow-sm">
                                         {mIdx + 1}
                                       </div>
-                                      <div className="flex-1">
-                                        <div className="font-medium text-gray-900">{m?.product_name || 'Unknown'}</div>
-                                        <div className="text-orange-700 mt-0.5">
-                                          {parseFloat(m?.quantity || 0).toFixed(3)} {m?.unit || 'unit'}
-                                          {m?.batch_number && <span className="ml-2 text-orange-600">• Batch: {m?.batch_number}</span>}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-gray-900 text-sm">{m?.product_name || 'Unknown'}</div>
+                                        <div className="text-xs text-orange-700 mt-1 flex flex-wrap items-center gap-2">
+                                          <span className="font-medium">
+                                            {parseFloat(m?.quantity || 0).toFixed(3)} {m?.unit || 'unit'}
+                                          </span>
+                                          {m?.batch_number && (
+                                            <span className="text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded">
+                                              Batch: {m?.batch_number}
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
                                     <div className="text-right flex-shrink-0 ml-3">
-                                      <div className="font-semibold text-orange-700">{rupee(m?.allocatedBudget || 0)}</div>
-                                      <div className="text-[10px] text-gray-500">
+                                      <div className="font-semibold text-orange-700 text-sm">{rupee(m?.allocatedBudget || 0)}</div>
+                                      <div className="text-[10px] text-gray-500 mt-0.5">
                                         @ {rupee(m?.rate || 0)}/{m?.unit || 'unit'}
                                       </div>
                                     </div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="px-3 py-2 text-xs text-gray-500 text-center">
+                                <div className="px-4 py-3 text-xs text-gray-500 text-center">
                                   No mix items available
                                 </div>
                               )}
                             </div>
 
                             {item?.batch_number && (
-                              <div className="px-3 py-2 border-t border-orange-200 text-xs text-orange-700">
-                                <span className="font-medium">Mix Batch:</span> {item?.batch_number}
+                              <div className="px-4 py-2.5 border-t border-orange-200 bg-orange-100/30">
+                                <div className="text-xs text-orange-800">
+                                  <span className="font-semibold">Mix Batch:</span>
+                                  <span className="ml-1.5 font-mono">{item?.batch_number}</span>
+                                </div>
                               </div>
                             )}
                           </div>

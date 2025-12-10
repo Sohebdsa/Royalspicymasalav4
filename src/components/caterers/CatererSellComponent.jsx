@@ -5,6 +5,7 @@ import CatererBatchSelectionDialog from './CatererBatchSelectionDialog';
 import CatererMixCalculator from './CatererMixCalculator';
 import MixProductSelectionDialog from './MixProductSelectionDialog';
 import CatererBillActionDialog from './CatererBillActionDialog';
+import BillPreviewModal from './BillPreviewModal';
 import {
   ArrowLeftIcon,
   PlusIcon,
@@ -102,6 +103,12 @@ const CatererSellComponent = () => {
   // Bill action dialog state
   const [billActionDialog, setBillActionDialog] = useState({
     isOpen: false
+  });
+
+  // Bill preview modal state
+  const [billPreviewModal, setBillPreviewModal] = useState({
+    isOpen: false,
+    billData: null
   });
 
   const [receiptPreview, setReceiptPreview] = useState(null);
@@ -208,7 +215,7 @@ const CatererSellComponent = () => {
 
   const handleCurrentChargeChange = (e) => {
     const { name, value } = e.target;
-    
+
     // When type changes to discount, set default value_type to percentage
     if (name === 'type' && value === 'discount') {
       setCurrentCharge(prev => ({
@@ -376,7 +383,7 @@ const CatererSellComponent = () => {
 
   const removeItem = (index) => {
     const item = sellData.items[index];
-    
+
     if (item.isMixHeader) {
       // Remove the entire mix (header + all items)
       const mixNumber = item.mixNumber;
@@ -410,7 +417,7 @@ const CatererSellComponent = () => {
       if (item.subtotal !== undefined && item.gst_amount !== undefined && item.total !== undefined) {
         return item;
       }
-      
+
       // For mix headers, use the existing values
       if (item.isMixHeader) {
         const subtotal = parseFloat(item.subtotal || item.total || 0);
@@ -422,7 +429,7 @@ const CatererSellComponent = () => {
           total
         };
       }
-      
+
       // For mix items, use the allocated budget as the total but set to 0 for calculation
       if (item.isMixItem) {
         const subtotal = parseFloat(item.subtotal || item.total || 0);
@@ -434,16 +441,16 @@ const CatererSellComponent = () => {
           total
         };
       }
-      
+
       // Calculate missing properties for regular items
       const quantity = parseFloat(item.quantity) || 0;
       const rate = parseFloat(item.rate) || 0;
       const gst = parseFloat(item.gst) || 0;
-      
+
       const subtotal = quantity * rate;
       const gstAmount = (subtotal * gst) / 100;
       const total = subtotal + gstAmount;
-      
+
       return {
         ...item,
         subtotal,
@@ -461,7 +468,7 @@ const CatererSellComponent = () => {
       const itemSubtotal = parseFloat(item.subtotal || 0);
       return sum + itemSubtotal;
     }, 0);
-    
+
     const totalGst = itemsWithTotals.reduce((sum, item) => {
       // Skip mix items in the calculation (only include mix headers)
       if (item.isMixItem) {
@@ -469,7 +476,7 @@ const CatererSellComponent = () => {
       }
       return sum + (item.gst_amount || 0);
     }, 0);
-    
+
     const itemsTotal = itemsWithTotals.reduce((sum, item) => {
       // Skip mix items in the calculation (only include mix headers)
       if (item.isMixItem) {
@@ -510,7 +517,7 @@ const CatererSellComponent = () => {
       }
       return sum + (item.total || 0);
     }, 0);
-    
+
     let discountTotal = 0;
     sellData.other_charges.forEach(charge => {
       if (charge.type === 'discount') {
@@ -538,6 +545,227 @@ const CatererSellComponent = () => {
         return 0;
       default:
         return 0;
+    }
+  };
+
+  // Handle bill preview
+  const handleBillPreview = () => {
+    // Validate form data
+    if (!sellData.caterer_id) {
+      showError('Please select a caterer');
+      return;
+    }
+
+    if (!sellData.caterer_name) {
+      showError('Caterer name is missing. Please select a caterer again.');
+      return;
+    }
+
+    if (sellData.items.length === 0) {
+      showError('Please add at least one item to continue');
+      return;
+    }
+
+    // Get caterer details
+    const selectedCaterer = caterers.find(c => c.id === parseInt(sellData.caterer_id));
+
+    // Prepare bill data for preview
+    const { subtotal, totalGst, itemsTotal, otherChargesTotal, grandTotal } = calculateTotals();
+    const paymentAmount = getPaymentAmount();
+
+    const billData = {
+      billNumber: billNumber,
+      sellDate: sellData.sell_date,
+      caterer: {
+        caterer_name: sellData.caterer_name,
+        name: sellData.caterer_name,
+        contact_person: selectedCaterer?.contact_person || '',
+        phone_number: selectedCaterer?.phone_number || '',
+        address: selectedCaterer?.address || ''
+      },
+      items: sellData.items,
+      otherCharges: sellData.other_charges,
+      subtotal: subtotal,
+      totalGst: totalGst,
+      itemsTotal: itemsTotal,
+      otherChargesTotal: otherChargesTotal,
+      grandTotal: grandTotal,
+      paymentOption: sellData.payment_option,
+      paymentAmount: paymentAmount,
+      paymentMethod: sellData.payment_method,
+      paymentDate: sellData.payment_date,
+      paymentStatus: paymentAmount >= grandTotal ? 'paid' : paymentAmount > 0 ? 'partial' : 'pending'
+    };
+
+    // Open preview modal
+    setBillPreviewModal({
+      isOpen: true,
+      billData: billData
+    });
+
+    // Close bill action dialog
+    setBillActionDialog({ isOpen: false });
+  };
+
+  // Handle WhatsApp bill sending
+  const handleWhatsAppBill = async () => {
+    try {
+      // First, validate the form
+      if (!sellData.caterer_id) {
+        showError('Please select a caterer');
+        return;
+      }
+
+      if (!sellData.caterer_name) {
+        showError('Caterer name is missing. Please select a caterer again.');
+        return;
+      }
+
+      if (sellData.items.length === 0) {
+        showError('Please add at least one item to continue');
+        return;
+      }
+
+      setLoading(true);
+      setBillActionDialog({ isOpen: false });
+
+      // Prepare the sale data (same as handleSubmit)
+      const currentItems = sellData.items || [];
+      const { grandTotal } = calculateTotals();
+      const paymentAmount = getPaymentAmount();
+
+      const payload = {
+        caterer_id: sellData.caterer_id,
+        caterer_name: sellData.caterer_name,
+        sell_date: sellData.sell_date,
+        items: currentItems.map(item => ({
+          ...item,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: parseFloat(item.quantity) || 0,
+          unit: item.unit || 'kg',
+          rate: parseFloat(item.rate) || 0,
+          gst_percentage: parseFloat(item.gst) || 0,
+          gst_amount: parseFloat(item.gst_amount) || 0,
+          subtotal: parseFloat(item.subtotal) || 0,
+          total: parseFloat(item.total) || 0,
+          batch_number: item.batch_number || item.batch || null,
+          isMix: item.isMix || false,
+          isMixHeader: item.isMixHeader || false,
+          isMixItem: item.isMixItem || false,
+          mixName: item.mixName || null,
+          mixNumber: item.mixNumber || null,
+          batches: item.batches || []
+        })),
+        other_charges: sellData.other_charges || [],
+        subtotal: calculateTotals().subtotal,
+        total_gst: calculateTotals().totalGst,
+        items_total: calculateTotals().itemsTotal,
+        other_charges_total: calculateTotals().otherChargesTotal,
+        grand_total: grandTotal,
+        payment_option: sellData.payment_option,
+        payment_amount: paymentAmount,
+        payment_method: sellData.payment_method,
+        payment_date: sellData.payment_date,
+        bill_number: billNumber
+      };
+
+      // Handle receipt image if present
+      if (sellData.receipt_image) {
+        try {
+          const reader = new FileReader();
+          const base64Promise = new Promise((resolve, reject) => {
+            reader.onload = (event) => {
+              payload.receipt_image = {
+                filename: sellData.receipt_image.name,
+                data: event.target.result,
+                size: sellData.receipt_image.size,
+                type: sellData.receipt_image.type
+              };
+              resolve();
+            };
+            reader.onerror = reject;
+          });
+          reader.readAsDataURL(sellData.receipt_image);
+          await base64Promise;
+        } catch (error) {
+          console.error('Error reading receipt image:', error);
+        }
+      }
+
+      // Create the sale
+      const saleResult = await catererSalesService.createSale(payload);
+
+      if (!saleResult.success) {
+        showError(saleResult.message || 'Failed to create sale');
+        setLoading(false);
+        return;
+      }
+
+      const saleId = saleResult.sale_id;
+      showSuccess(`Bill created successfully! Bill Number: ${saleResult.bill_number}`);
+
+      // Fetch WhatsApp formatted text
+      const whatsappData = await catererSalesService.getWhatsAppText(saleId);
+
+      if (!whatsappData.success) {
+        showError('Bill created but failed to generate WhatsApp message');
+        setLoading(false);
+        return;
+      }
+
+      // Open WhatsApp with the formatted bill text
+      const phoneNumber = whatsappData.catererPhone;
+      const message = encodeURIComponent(whatsappData.whatsappText);
+
+      // Check if phone number exists
+      if (!phoneNumber) {
+        showError('Caterer phone number not found. Please add phone number to caterer profile.');
+        setLoading(false);
+        return;
+      }
+
+      // Clean phone number (remove spaces, dashes, etc.)
+      const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+
+      // Open WhatsApp Web with the message
+      // Use WhatsApp Web URL format: https://web.whatsapp.com/send?phone=PHONE&text=MESSAGE
+      // Or use WhatsApp app URL format: https://wa.me/PHONE?text=MESSAGE
+      const whatsappUrl = `https://wa.me/${cleanPhone}?text=${message}`;
+
+      // Open in new window
+      window.open(whatsappUrl, '_blank');
+
+      showSuccess('WhatsApp opened! You can now send the bill to the caterer.');
+
+      // Reset the form for next bill
+      setSellData({
+        caterer_id: '',
+        caterer_name: '',
+        sell_date: new Date().toISOString().split('T')[0],
+        items: [],
+        other_charges: [],
+        payment_option: 'later',
+        custom_amount: '',
+        payment_method: 'cash',
+        payment_date: new Date().toISOString().split('T')[0],
+        receipt_image: null
+      });
+
+      setReceiptPreview(null);
+
+      // Fetch next bill number
+      const nextBillData = await catererSalesService.getNextBillNumber();
+      if (nextBillData.success) {
+        setBillNumber(nextBillData.bill_number);
+      }
+
+      setLoading(false);
+
+    } catch (error) {
+      console.error('Error in WhatsApp bill flow:', error);
+      showError(error.message || 'Failed to process WhatsApp bill');
+      setLoading(false);
     }
   };
 
@@ -626,7 +854,7 @@ const CatererSellComponent = () => {
               size: sellData.receipt_image.size,
               type: sellData.receipt_image.type
             };
-            
+
             // Send the data with the image
             sendSaleData(payload);
           };
@@ -759,8 +987,8 @@ const CatererSellComponent = () => {
                         {(() => {
                           const caterer = caterers.find(c => c.id === parseInt(sellData.caterer_id));
                           const imageUrl = caterer?.card_image_url ||
-                                          (caterer?.card_image ? `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/images/${caterer.card_image}` : null);
-                          
+                            (caterer?.card_image ? `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/images/${caterer.card_image}` : null);
+
                           if (imageUrl) {
                             return (
                               <img
@@ -784,7 +1012,7 @@ const CatererSellComponent = () => {
                         })()}
                       </div>
                     </div>
-                    
+
                     {/* Caterer Information */}
                     <div className="flex-1 min-w-0">
                       <div className="space-y-1">
@@ -1201,9 +1429,9 @@ const CatererSellComponent = () => {
                     }}
                     placeholder={
                       currentCharge.type === 'percentage' ? '0.00%' :
-                      currentCharge.type === 'discount' ?
-                        (currentCharge.value_type === 'percentage' ? '0.00%' : '0.00') :
-                        '0.00'
+                        currentCharge.type === 'discount' ?
+                          (currentCharge.value_type === 'percentage' ? '0.00%' : '0.00') :
+                          '0.00'
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
                   />
@@ -1254,9 +1482,9 @@ const CatererSellComponent = () => {
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                           {charge.type === 'fixed' ? 'Fixed Amount' :
-                           charge.type === 'percentage' ? `${charge.value}%` :
-                           charge.value_type === 'percentage' ? `${charge.value}% Discount` :
-                           `₹${charge.value} Discount`}
+                            charge.type === 'percentage' ? `${charge.value}%` :
+                              charge.value_type === 'percentage' ? `${charge.value}% Discount` :
+                                `₹${charge.value} Discount`}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                           {charge.value}
@@ -1411,9 +1639,8 @@ const CatererSellComponent = () => {
                     Receipt Image (Optional)
                   </label>
                   <div className="flex items-center justify-center w-full">
-                    <label className={`flex flex-col w-full h-32 border-2 border-dashed rounded-md cursor-pointer transition-all ${
-                      receiptPreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
-                    }`}>
+                    <label className={`flex flex-col w-full h-32 border-2 border-dashed rounded-md cursor-pointer transition-all ${receiptPreview ? 'border-orange-300 bg-orange-50' : 'border-gray-300 hover:bg-gray-50'
+                      }`}>
                       {receiptPreview ? (
                         <div className="relative w-full h-full">
                           <img
@@ -1492,154 +1719,157 @@ const CatererSellComponent = () => {
         </form>
       </div>
 
-        {/* Batch Selection Dialog */}
-        {batchSelectionDialog.isOpen && batchSelectionDialog.product && (
-          <CatererBatchSelectionDialog
-            isOpen={batchSelectionDialog.isOpen}
-            onClose={() => setBatchSelectionDialog({ isOpen: false, product: null, availableBatches: [] })}
-            product={batchSelectionDialog.product}
-            availableBatches={batchSelectionDialog.availableBatches ?? []}
-            onBatchSelection={handleBatchSelection}
-            initialQuantity={currentItem.quantity}
-          />
-        )}
+      {/* Batch Selection Dialog */}
+      {batchSelectionDialog.isOpen && batchSelectionDialog.product && (
+        <CatererBatchSelectionDialog
+          isOpen={batchSelectionDialog.isOpen}
+          onClose={() => setBatchSelectionDialog({ isOpen: false, product: null, availableBatches: [] })}
+          product={batchSelectionDialog.product}
+          availableBatches={batchSelectionDialog.availableBatches ?? []}
+          onBatchSelection={handleBatchSelection}
+          initialQuantity={currentItem.quantity}
+        />
+      )}
 
-        {/* Mix Calculator Dialog */}
-        {mixCalculatorDialog.isOpen && (
-          <CatererMixCalculator
-            isOpen={mixCalculatorDialog.isOpen}
-            onClose={() => setMixCalculatorDialog({ isOpen: false })}
-            products={products}
-            onBatchSelectionComplete={(mixData) => {
-              // For each product in the mix, fetch available batches
-              const fetchBatchesForMixProducts = async () => {
-                try {
-                  const productsWithBatches = await Promise.all(
-                    mixData.mixProducts.map(async (product) => {
-                      const response = await productService.getProductBatches(product.id);
-                      return {
-                        ...product,
-                        availableBatches: response.success && Array.isArray(response.data)
-                          ? response.data.map(b => ({
-                              batch: b.batch || b.batch_id,
-                              totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
-                              unit: b.unit || 'kg'
-                            })).filter(b => b.batch && b.totalQuantity > 0)
-                          : []
-                      };
-                    })
-                  );
+      {/* Mix Calculator Dialog */}
+      {mixCalculatorDialog.isOpen && (
+        <CatererMixCalculator
+          isOpen={mixCalculatorDialog.isOpen}
+          onClose={() => setMixCalculatorDialog({ isOpen: false })}
+          products={products}
+          onBatchSelectionComplete={(mixData) => {
+            // For each product in the mix, fetch available batches
+            const fetchBatchesForMixProducts = async () => {
+              try {
+                const productsWithBatches = await Promise.all(
+                  mixData.mixProducts.map(async (product) => {
+                    const response = await productService.getProductBatches(product.id);
+                    return {
+                      ...product,
+                      availableBatches: response.success && Array.isArray(response.data)
+                        ? response.data.map(b => ({
+                          batch: b.batch || b.batch_id,
+                          totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
+                          unit: b.unit || 'kg'
+                        })).filter(b => b.batch && b.totalQuantity > 0)
+                        : []
+                    };
+                  })
+                );
 
-                  // Open mix product selection dialog
-                  setMixProductSelectionDialog({
-                    isOpen: true,
-                    mixProducts: productsWithBatches,
-                    mixName: mixData.mixName,
-                    totalBudget: mixData.totalBudget
-                  });
-                } catch (error) {
-                  console.error('Error fetching batches for mix products:', error);
-                  showError('Failed to fetch batch information for mix products');
-                }
-              };
+                // Open mix product selection dialog
+                setMixProductSelectionDialog({
+                  isOpen: true,
+                  mixProducts: productsWithBatches,
+                  mixName: mixData.mixName,
+                  totalBudget: mixData.totalBudget
+                });
+              } catch (error) {
+                console.error('Error fetching batches for mix products:', error);
+                showError('Failed to fetch batch information for mix products');
+              }
+            };
 
-              fetchBatchesForMixProducts();
-            }}
-          />
-        )}
+            fetchBatchesForMixProducts();
+          }}
+        />
+      )}
 
-        {/* Mix Product Selection Dialog */}
-        {mixProductSelectionDialog.isOpen && (
-          <MixProductSelectionDialog
-            isOpen={mixProductSelectionDialog.isOpen}
-            onClose={() => setMixProductSelectionDialog({ isOpen: false })}
-            mixProducts={mixProductSelectionDialog.mixProducts}
-            mixName={mixProductSelectionDialog.mixName}
-            totalBudget={mixProductSelectionDialog.totalBudget}
-            onBatchSelectionComplete={(selectedMixData) => {
-              // Add mix items to the sell form with batch information
-              const mixName = selectedMixData.mixName;
-              const newItems = selectedMixData.mixProducts.map((product, index) => {
-                // For mix items, we need to set the rate so that quantity * rate = allocatedBudget
-                // This ensures the server calculates the correct amount and total_amount
-                const calculatedRate = product.allocatedBudget > 0 && product.calculatedQuantity > 0
-                  ? product.allocatedBudget / product.calculatedQuantity
-                  : 0;
-                
-                return {
-                  product_id: product.id,
-                  product_name: product.name,
-                  quantity: product.calculatedQuantity,
-                  unit: product.unit || 'kg',
-                  rate: calculatedRate.toFixed(4), // Use 4 decimal places for precision
-                  gst: '0', // Mix items typically don't have GST
-                  subtotal: parseFloat(product.allocatedBudget || 0).toFixed(2),
-                  gst_amount: '0',
-                  total: parseFloat(product.allocatedBudget || 0).toFixed(2),
-                  isMix: true,
-                  mixName: mixName,
-                  mixIndex: index,
-                  isMixItem: true,
-                  batch_number: product.selectedBatch,
-                  batchId: null,
-                  batchQuantity: product.calculatedQuantity,
-                  batchUnit: product.unit || 'kg'
-                };
-              });
+      {/* Mix Product Selection Dialog */}
+      {mixProductSelectionDialog.isOpen && (
+        <MixProductSelectionDialog
+          isOpen={mixProductSelectionDialog.isOpen}
+          onClose={() => setMixProductSelectionDialog({ isOpen: false })}
+          mixProducts={mixProductSelectionDialog.mixProducts}
+          mixName={mixProductSelectionDialog.mixName}
+          totalBudget={mixProductSelectionDialog.totalBudget}
+          onBatchSelectionComplete={(selectedMixData) => {
+            // Add mix items to the sell form with batch information
+            const mixName = selectedMixData.mixName;
+            const newItems = selectedMixData.mixProducts.map((product, index) => {
+              // For mix items, we need to set the rate so that quantity * rate = allocatedBudget
+              // This ensures the server calculates the correct amount and total_amount
+              const calculatedRate = product.allocatedBudget > 0 && product.calculatedQuantity > 0
+                ? product.allocatedBudget / product.calculatedQuantity
+                : 0;
 
-              // Add a header item for the mix
-              const mixHeaderItem = {
-                product_id: `mix-${Date.now()}`,
-                product_name: mixName || 'Custom Mix',
-                quantity: 1,
-                unit: 'mix',
-                rate: parseFloat(mixProductSelectionDialog.totalBudget || 0),
-                gst: '0',
-                subtotal: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+              return {
+                product_id: product.id,
+                product_name: product.name,
+                quantity: product.calculatedQuantity,
+                unit: product.unit || 'kg',
+                rate: calculatedRate.toFixed(4), // Use 4 decimal places for precision
+                gst: '0', // Mix items typically don't have GST
+                subtotal: parseFloat(product.allocatedBudget || 0).toFixed(2),
                 gst_amount: '0',
-                total: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+                total: parseFloat(product.allocatedBudget || 0).toFixed(2),
                 isMix: true,
-                mixName: mixName || 'Custom Mix',
-                isMixHeader: true,
-                // Add calculated properties to match the structure expected by calculateTotals
-                calculatedRate: parseFloat(mixProductSelectionDialog.totalBudget || 0)
+                mixName: mixName,
+                mixIndex: index,
+                isMixItem: true,
+                batch_number: product.selectedBatch,
+                batchId: null,
+                batchQuantity: product.calculatedQuantity,
+                batchUnit: product.unit || 'kg'
               };
+            });
 
-              setSellData(prev => ({
-                ...prev,
-                items: [...prev.items, mixHeaderItem, ...newItems]
-              }));
+            // Add a header item for the mix
+            const mixHeaderItem = {
+              product_id: `mix-${Date.now()}`,
+              product_name: mixName || 'Custom Mix',
+              quantity: 1,
+              unit: 'mix',
+              rate: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+              gst: '0',
+              subtotal: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+              gst_amount: '0',
+              total: parseFloat(mixProductSelectionDialog.totalBudget || 0),
+              isMix: true,
+              mixName: mixName || 'Custom Mix',
+              isMixHeader: true,
+              // Add calculated properties to match the structure expected by calculateTotals
+              calculatedRate: parseFloat(mixProductSelectionDialog.totalBudget || 0)
+            };
 
-              showSuccess(`${mixName} added successfully!`);
-              setMixProductSelectionDialog({ isOpen: false });
-            }}
-          />
-        )}
+            setSellData(prev => ({
+              ...prev,
+              items: [...prev.items, mixHeaderItem, ...newItems]
+            }));
 
-        {/* Bill Action Dialog */}
-        {billActionDialog.isOpen && (
-          <CatererBillActionDialog
-            isOpen={billActionDialog.isOpen}
-            onClose={() => setBillActionDialog({ isOpen: false })}
-            onBillPreview={() => {
-              // Handle bill preview action
-              console.log('Bill preview clicked');
-              setBillActionDialog({ isOpen: false });
-              // You can implement bill preview functionality here
-            }}
-            onCreateBill={() => {
-              // Handle create bill action - this will submit the form
-              handleSubmit(new Event('submit'));
-              setBillActionDialog({ isOpen: false });
-            }}
-            onWhatsAppBill={() => {
-              // Handle WhatsApp bill action
-              console.log('WhatsApp bill clicked');
-              setBillActionDialog({ isOpen: false });
-              // You can implement WhatsApp functionality here
-            }}
-          />
-        )}
+            showSuccess(`${mixName} added successfully!`);
+            setMixProductSelectionDialog({ isOpen: false });
+          }}
+        />
+      )}
+
+      {/* Bill Action Dialog */}
+      {billActionDialog.isOpen && (
+        <CatererBillActionDialog
+          isOpen={billActionDialog.isOpen}
+          onClose={() => setBillActionDialog({ isOpen: false })}
+          onBillPreview={() => {
+            // Handle bill preview action
+            handleBillPreview();
+          }}
+          onCreateBill={() => {
+            // Handle create bill action - this will submit the form
+            handleSubmit(new Event('submit'));
+            setBillActionDialog({ isOpen: false });
+          }}
+          onWhatsAppBill={() => {
+            // Handle WhatsApp bill action
+            handleWhatsAppBill();
+          }}
+        />
+      )}
+
+      {/* Bill Preview Modal */}
+      <BillPreviewModal
+        isOpen={billPreviewModal.isOpen}
+        onClose={() => setBillPreviewModal({ isOpen: false, billData: null })}
+        billData={billPreviewModal.billData}
+      />
     </div>
   );
 };

@@ -377,7 +377,7 @@ const createSupplierPurchase = async (req, res) => {
         );
 
 
-        // Manually update inventory summary
+        // Manually update inventory summary with proper weighted average
         await pool.execute(
           `INSERT INTO inventory_summary (product_id, product_name, total_quantity, total_value, average_cost_per_kg, unit)
            VALUES (?, ?, ?, ?, ?, ?)
@@ -386,7 +386,7 @@ const createSupplierPurchase = async (req, res) => {
              total_value = total_value + VALUES(total_value),
              average_cost_per_kg = CASE
                WHEN total_quantity + VALUES(total_quantity) > 0
-               THEN (total_value + VALUES(total_value)) / (total_quantity + VALUES(total_quantity))
+               THEN (average_cost_per_kg * total_quantity + VALUES(average_cost_per_kg) * VALUES(total_quantity)) / (total_quantity + VALUES(total_quantity))
                ELSE 0
              END,
              product_name = VALUES(product_name),

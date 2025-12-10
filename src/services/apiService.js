@@ -17,7 +17,7 @@ export const catererService = {
   ),
 
   // Get single caterer by ID (no cache as it's specific)
-  getCatererById: (id) => 
+  getCatererById: (id) =>
     fetch(`${API_BASE_URL}/api/caterers/${id}`)
       .then(response => response.json()),
 
@@ -131,7 +131,7 @@ export const catererSalesService = {
   // Create new caterer sale
   createSale: async (saleData) => {
     console.log('createSale called with data:', saleData);
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/caterer-sales/create`, {
         method: 'POST',
@@ -140,21 +140,21 @@ export const catererSalesService = {
         },
         body: JSON.stringify(saleData),
       });
-      
+
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.message || 'Failed to create sale');
       }
-      
+
       console.log('Sale created successfully:', result);
-      
+
       // Invalidate related caches after successful sale creation
       if (cacheUtils.invalidate) {
         cacheUtils.invalidate(`/api/caterer-sales/history/${saleData.caterer_id}`);
         cacheUtils.invalidate(`/api/caterers/${saleData.caterer_id}`);
       }
-      
+
       return result;
     } catch (error) {
       console.error('Error in createSale:', error);
@@ -179,11 +179,11 @@ export const catererSalesService = {
     try {
       const response = await fetch(`${API_BASE_URL}/api/caterer-sales/caterer/${catererId}`);
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.message || 'Failed to fetch sales');
       }
-      
+
       return result.sales;
     } catch (error) {
       console.error('Error fetching caterer sales:', error);
@@ -196,14 +196,31 @@ export const catererSalesService = {
     try {
       const response = await fetch(`${API_BASE_URL}/api/caterer-sales/${saleId}/details`);
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.message || 'Failed to fetch sale details');
       }
-      
+
       return result.sale;
     } catch (error) {
       console.error('Error fetching sale details:', error);
+      throw error;
+    }
+  },
+
+  // Get WhatsApp formatted bill text
+  getWhatsAppText: async (saleId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/caterer-sales/${saleId}/whatsapp-text`);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch WhatsApp bill text');
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error fetching WhatsApp bill text:', error);
       throw error;
     }
   },
@@ -215,25 +232,25 @@ export const cacheService = {
   preWarmCache: async () => {
     try {
       console.log('Pre-warming API cache...');
-      
+
       // Fetch and cache products
       const productsData = await productService.getProducts();
       if (productsData && productsData.success) {
         console.log('Products cached successfully');
       }
-      
+
       // Fetch and cache caterers
       const caterersData = await catererService.getCaterers();
       if (caterersData && caterersData.success) {
         console.log('Caterers cached successfully');
       }
-      
+
       // Fetch and cache categories
       const categoriesData = await productService.getCategories();
       if (categoriesData && categoriesData.success) {
         console.log('Categories cached successfully');
       }
-      
+
     } catch (error) {
       console.error('Error pre-warming cache:', error);
     }
@@ -257,7 +274,7 @@ export const cacheService = {
     console.log(`Force refreshing cache for ${endpoint}`);
     return withCache(endpoint, fetchFn, params, { forceRefresh: true });
   },
-  
+
   // Invalidate specific cache entry
   invalidateCache: (key) => {
     if (cacheUtils.invalidate) {

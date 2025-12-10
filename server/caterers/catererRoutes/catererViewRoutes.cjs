@@ -56,7 +56,7 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
       LEFT JOIN caterers c ON cs.caterer_id = c.id
       WHERE cs.caterer_id = ?
     `;
-    
+
     const queryParams = [catererId];
     const conditions = [];
 
@@ -104,7 +104,7 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
     const parsedLimit = parseInt(limit);
     const parsedPage = parseInt(page);
     const offset = (parsedPage - 1) * parsedLimit;
-    
+
     const finalQuery = query + ` ORDER BY cs.sell_date DESC, cs.created_at DESC LIMIT ${parsedLimit} OFFSET ${offset}`;
     const finalParams = queryParams;
 
@@ -132,7 +132,7 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
     // Get all sale items for these sales
     const saleIds = salesArray.map(sale => sale.id);
     let allItems = [];
-    
+
     if (saleIds.length > 0) {
       const [items] = await db.pool.execute(
         `SELECT * FROM caterer_sale_items
@@ -149,16 +149,19 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
       const parentItems = allItems.filter(item =>
         item.sale_id === sale.id && item.parent_sale_item_id === null
       );
-      
+
       const processedItems = parentItems.map(item => {
-        // If this is a mix header, find its children
-        if (item.is_mix === 1) {
-          const mixComponents = allItems.filter(childItem =>
-            childItem.sale_id === sale.id &&
-            childItem.parent_sale_item_id === item.id &&
-            childItem.mix_id === item.mix_id
-          );
-          
+        // Check if this item has child items (mix components)
+        const mixComponents = allItems.filter(childItem =>
+          childItem.sale_id === sale.id &&
+          childItem.parent_sale_item_id === item.id &&
+          childItem.mix_id === item.mix_id
+        );
+
+        // If this is a mix header (has children OR is_mix flag is set), process as mix
+        const isMix = (item.is_mix === 1 || item.is_mix === true) || mixComponents.length > 0;
+
+        if (isMix && mixComponents.length > 0) {
           return {
             ...item,
             is_mix: true,
@@ -174,26 +177,26 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
             }))
           };
         }
-        
+
         // Regular item (not a mix)
         return {
           ...item,
           is_mix: false
         };
       });
-      
+
       // Get payments for this sale
       const [payments] = await db.pool.execute(
         'SELECT * FROM caterer_sale_payments WHERE sale_id = ? ORDER BY payment_date DESC, created_at DESC',
         [sale.id]
       );
-      
+
       // Get other charges for this sale
       const [charges] = await db.pool.execute(
         'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ? ORDER BY id',
         [sale.id]
       );
-      
+
       return {
         ...sale,
         items: processedItems,
@@ -208,9 +211,9 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
       FROM caterer_sales cs
       WHERE cs.caterer_id = ?
     `;
-    
+
     const countParams = [catererId];
-    
+
     if (conditions.length > 0) {
       countQuery += ' AND ' + conditions.join(' AND ');
     }
@@ -245,7 +248,7 @@ router.get('/:caterer_id/sales', logRequest, async (req, res) => {
 router.get('/:caterer_id', logRequest, async (req, res) => {
   try {
     const catererId = req.params.caterer_id;
-    
+
     if (!catererId || isNaN(parseInt(catererId))) {
       return res.status(400).json({
         success: false,
@@ -289,7 +292,7 @@ router.get('/:caterer_id', logRequest, async (req, res) => {
     // Get all sale items for these sales
     const saleIds = sales.map(sale => sale.id);
     let allItems = [];
-    
+
     if (saleIds.length > 0) {
       const [items] = await db.pool.execute(
         `SELECT * FROM caterer_sale_items 
@@ -303,19 +306,22 @@ router.get('/:caterer_id', logRequest, async (req, res) => {
     // Process sales with complete item details using Promise.all
     const salesWithDetails = await Promise.all(sales.map(async (sale) => {
       // Get parent items only for this sale
-      const parentItems = allItems.filter(item => 
+      const parentItems = allItems.filter(item =>
         item.sale_id === sale.id && item.parent_sale_item_id === null
       );
-      
+
       const processedItems = parentItems.map(item => {
-        // If this is a mix header, find its children
-        if (item.is_mix === 1) {
-          const mixComponents = allItems.filter(childItem => 
-            childItem.sale_id === sale.id && 
-            childItem.parent_sale_item_id === item.id && 
-            childItem.mix_id === item.mix_id
-          );
-          
+        // Check if this item has child items (mix components)
+        const mixComponents = allItems.filter(childItem =>
+          childItem.sale_id === sale.id &&
+          childItem.parent_sale_item_id === item.id &&
+          childItem.mix_id === item.mix_id
+        );
+
+        // If this is a mix header (has children OR is_mix flag is set), process as mix
+        const isMix = (item.is_mix === 1 || item.is_mix === true) || mixComponents.length > 0;
+
+        if (isMix && mixComponents.length > 0) {
           return {
             ...item,
             is_mix: true,
@@ -331,26 +337,26 @@ router.get('/:caterer_id', logRequest, async (req, res) => {
             }))
           };
         }
-        
+
         // Regular item (not a mix)
         return {
           ...item,
           is_mix: false
         };
       });
-      
+
       // Get payments for this sale
       const [payments] = await db.pool.execute(
         'SELECT * FROM caterer_sale_payments WHERE sale_id = ? ORDER BY payment_date DESC, created_at DESC',
         [sale.id]
       );
-      
+
       // Get other charges for this sale
       const [charges] = await db.pool.execute(
         'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ? ORDER BY id',
         [sale.id]
       );
-      
+
       return {
         ...sale,
         items: processedItems,

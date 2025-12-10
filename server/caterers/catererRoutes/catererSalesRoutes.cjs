@@ -171,17 +171,6 @@ router.post('/create',
       if (remainingAfterDerived === 0) initialStatus = 'paid';
       else if (Number(derivedPayAmount) > 0) initialStatus = 'partial';
 
-      // console.log('📊 Processing sale data:', {
-      //   caterer_id: saleData.caterer_id,
-      //   bill_number: saleData.bill_number,
-      //   items_count: saleData.items?.length || 0,
-      //   grand_total: saleData.grand_total,
-      //   payment_method: normalizedMethod,
-      //   payment_amount: derivedPayAmount,
-      //   payment_status: initialStatus
-      // });
-
-      // 1. Insert into caterer_sales table
       console.log('📝 Inserting into caterer_sales table...');
       const [saleResult] = await connection.execute(
         `INSERT INTO caterer_sales
@@ -218,6 +207,20 @@ router.post('/create',
           // Check if this is a mix product
           const isMixProduct = item.isMix || (item.product_id && item.product_id.toString().startsWith('mix-'));
 
+          // Get mix items from various possible locations
+          let mixItems = null;
+          if (item.mixItems && Array.isArray(item.mixItems)) {
+            mixItems = item.mixItems;
+          } else if (item.components && Array.isArray(item.components)) {
+            mixItems = item.components;
+          } else if (item.mixDetails && Array.isArray(item.mixDetails)) {
+            mixItems = item.mixDetails;
+          } else if (item.customDetails && item.customDetails.mixItems && Array.isArray(item.customDetails.mixItems)) {
+            mixItems = item.customDetails.mixItems;
+          } else if (item.custom_details && item.custom_details.mixItems && Array.isArray(item.custom_details.mixItems)) {
+            mixItems = item.custom_details.mixItems;
+          }
+
           // Handle batch information
           let batchNumber = null;
           let expiryDate = null;
@@ -231,10 +234,9 @@ router.post('/create',
             expiryDate = firstBatch.expiry_date || null;
           }
 
-          if (isMixProduct && item.mixItems && Array.isArray(item.mixItems) && item.mixItems.length > 0) {
+          if (isMixProduct && mixItems && mixItems.length > 0) {
             // Insert mix header item
-            // console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId})`);
-
+            console.log(`📦 Inserting mix product: ${item.product_name} (Mix ID: ${currentMixId}) with ${mixItems.length} components`);
             const [mixHeaderResult] = await connection.execute(
               `INSERT INTO caterer_sale_items
                (sale_id, product_id, product_name, quantity, unit, rate,
@@ -254,18 +256,18 @@ router.post('/create',
                 totalAmount || 0,
                 batchNumber || null,
                 expiryDate || null,
-                true, // is_mix
+                1, // is_mix = 1 (TRUE)
                 currentMixId, // mix_id
                 null, // parent_sale_item_id (null for header)
-                JSON.stringify(item.mixItems) // Store full mix data as JSON backup
+                JSON.stringify(mixItems) // Store full mix data as JSON backup
               ]
             );
 
             const mixHeaderId = mixHeaderResult.insertId;
 
             // Insert individual mix items
-            // console.log(`   └─ Inserting ${item.mixItems.length} items in mix...`);
-            for (const mixItem of item.mixItems) {
+            console.log(`   └─ Inserting ${mixItems.length} items in mix...`);
+            for (const mixItem of mixItems) {
               // Get batch info for mix item
               let mixItemBatch = null;
               let mixItemExpiry = null;
@@ -298,7 +300,7 @@ router.post('/create',
                   mixItem.allocatedBudget || 0,
                   mixItemBatch || null,
                   mixItemExpiry || null,
-                  false, // is_mix (these are components, not mix headers)
+                  0, // is_mix = 0 (these are components, not mix headers)
                   currentMixId, // Same mix_id as parent
                   mixHeaderId, // Reference to parent mix header
                   null // No mix_item_data for components
@@ -328,7 +330,7 @@ router.post('/create',
                 totalAmount || 0,
                 batchNumber || null,
                 expiryDate || null,
-                false, // is_mix
+                0, // is_mix = 0
                 null, // mix_id
                 null, // parent_sale_item_id
                 null // mix_item_data
@@ -419,12 +421,8 @@ router.post('/create',
       try {
         const { deductProductsFromInventory, checkInventorySufficiency } = require('../catererBillInventoryDeduction.cjs');
 
-        // Prepare inventory deduction data
-        // Need to restructure mix items: group mix components under their parent mix header
         const processedItems = [];
         const mixItemsMap = new Map(); // Track mix items by mixName
-
-        // First pass: collect all mix items grouped by mixName
         for (const item of saleData.items) {
           if (item.isMixItem && item.mixName) {
             if (!mixItemsMap.has(item.mixName)) {
@@ -907,6 +905,127 @@ router.get('/test', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// GET /api/caterer-sales/:sale_id/whatsapp-text - Get WhatsApp formatted bill text
+router.get('/:sale_id/whatsapp-text', logRequest, async (req, res) => {
+  try {
+    const saleId = req.params.sale_id;
+    console.log(`📱 Generating WhatsApp bill text for sale ID: ${saleId}`);
+
+    // Get sale info
+    const [sales] = await db.pool.execute(
+      'SELECT * FROM caterer_sales WHERE id = ?',
+      [saleId]
+    );
+
+    if (sales.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sale not found'
+      });
+    }
+
+    const sale = sales[0];
+
+    // Get caterer info
+    const [caterers] = await db.pool.execute(
+      'SELECT * FROM caterers WHERE id = ?',
+      [sale.caterer_id]
+    );
+
+    if (caterers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Caterer not found'
+      });
+    }
+
+    const caterer = caterers[0];
+
+    // Get all sale items
+    const [allItems] = await db.pool.execute(
+      'SELECT * FROM caterer_sale_items WHERE sale_id = ? ORDER BY id',
+      [saleId]
+    );
+
+    // Process items - only return parent items with their mix components
+    const parentItems = allItems.filter(item => item.parent_sale_item_id === null);
+
+    const processedItems = parentItems.map(item => {
+      // If this is a mix header (is_mix = 1), find its children
+      if (item.is_mix === 1) {
+        const mixComponents = allItems.filter(childItem =>
+          childItem.parent_sale_item_id === item.id &&
+          childItem.mix_id === item.mix_id
+        );
+
+        return {
+          ...item,
+          is_mix: true,
+          mix_items: mixComponents.map(comp => ({
+            product_id: comp.product_id,
+            product_name: comp.product_name,
+            quantity: parseFloat(comp.quantity),
+            unit: comp.unit,
+            rate: parseFloat(comp.rate),
+            allocatedBudget: parseFloat(comp.total_amount),
+            batch_number: comp.batch_number,
+            expiry_date: comp.expiry_date
+          }))
+        };
+      }
+
+      // Regular item (not a mix)
+      return {
+        ...item,
+        is_mix: false
+      };
+    });
+
+    // Get payments
+    const [payments] = await db.pool.execute(
+      'SELECT * FROM caterer_sale_payments WHERE sale_id = ?',
+      [saleId]
+    );
+
+    // Get other charges
+    const [otherCharges] = await db.pool.execute(
+      'SELECT * FROM caterer_sale_other_charges WHERE sale_id = ?',
+      [saleId]
+    );
+
+    // Format bill for WhatsApp
+    const { formatBillForWhatsApp } = require('../utils/whatsappBillFormatter.cjs');
+
+    const billData = {
+      sale,
+      caterer,
+      items: processedItems,
+      payments,
+      otherCharges
+    };
+
+    const whatsappText = formatBillForWhatsApp(billData);
+
+    console.log('✅ WhatsApp bill text generated successfully');
+
+    res.json({
+      success: true,
+      whatsappText,
+      catererPhone: caterer.phone_number,
+      billNumber: sale.bill_number
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating WhatsApp bill text:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate WhatsApp bill text',
+      error: error.message
+    });
+  }
+});
+
 
 // Health check
 router.get('/health', (req, res) => {
