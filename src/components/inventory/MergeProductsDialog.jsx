@@ -12,7 +12,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
   const [loading, setLoading] = useState(false);
   const [availableBatches, setAvailableBatches] = useState([]);
   const [selectedBatches, setSelectedBatches] = useState([]);
-  const [targetBatch, setTargetBatch] = useState('');
+
 
   useEffect(() => {
     if (isOpen && selectedProduct) {
@@ -62,10 +62,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
       return;
     }
 
-    if (!targetBatch.trim()) {
-      showError('Please enter a target batch name');
-      return;
-    }
+
 
     try {
       setLoading(true);
@@ -81,15 +78,14 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
         },
         body: JSON.stringify({
           product_id: selectedProduct.product_id,
-          batch_ids: selectedBatches.map(b => b.batch),
-          new_batch_name: targetBatch.trim()
+          batch_ids: selectedBatches.map(b => b.batch)
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        showSuccess(`Successfully merged ${selectedBatches.length} batches into ${targetBatch}`);
+        showSuccess(`Successfully merged ${selectedBatches.length} batches into ${data.merged_batch.batch}`);
         onMergeSuccess();
         handleClose();
       } else {
@@ -106,7 +102,6 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
   const handleClose = () => {
     if (!loading) {
       setSelectedBatches([]);
-      setTargetBatch('');
       setAvailableBatches([]);
       onClose();
     }
@@ -151,7 +146,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
               <div>
                 <h3 className="text-lg font-medium text-gray-900">{selectedProduct.product_name}</h3>
                 <p className="text-sm text-gray-600">
-                  Current Total: {formatQuantity(selectedProduct.total_quantity, selectedProduct.unit)} • 
+                  Current Total: {formatQuantity(selectedProduct.total_quantity, selectedProduct.unit)} •
                   Value: {formatCurrency(selectedProduct.total_value)}
                 </p>
               </div>
@@ -202,21 +197,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
                 )}
               </div>
 
-              {/* Target Batch */}
-              {selectedBatches.length >= 2 && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Batch Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={targetBatch}
-                    onChange={(e) => setTargetBatch(e.target.value)}
-                    placeholder="Enter new batch name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-              )}
+
 
               {/* Merge Summary */}
               {selectedBatches.length >= 2 && (
@@ -239,7 +220,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
                             Total: {formatQuantity(
                               selectedBatches.reduce((sum, batch) => sum + batch.totalQuantity, 0),
                               selectedProduct.unit
-                            )} • 
+                            )} •
                             Value: {formatCurrency(
                               selectedBatches.reduce((sum, batch) => sum + batch.totalValue, 0)
                             )}
@@ -267,7 +248,7 @@ const MergeProductsDialog = ({ isOpen, onClose, selectedProduct, onMergeSuccess 
           <button
             type="button"
             onClick={handleMerge}
-            disabled={loading || selectedBatches.length < 2 || !targetBatch.trim()}
+            disabled={loading || selectedBatches.length < 2}
             className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Merging...' : 'Merge Batches'}

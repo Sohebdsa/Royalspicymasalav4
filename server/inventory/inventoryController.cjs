@@ -665,7 +665,9 @@ const getAverageCostPrices = async (req, res) => {
 };
 
 // Merge multiple batches into one
+// Merge multiple batches into one
 const mergeBatches = async (req, res) => {
+  let connection;
   try {
     const { product_id, batch_ids, new_batch_name } = req.body;
 
@@ -676,133 +678,169 @@ const mergeBatches = async (req, res) => {
       });
     }
 
-    // Get all batches to merge
-    const placeholders = batch_ids.map(() => '?').join(',');
-    const [batches] = await pool.execute(`
-      SELECT
-        batch,
-        SUM(CASE
-          WHEN action = 'added' OR action = 'updated' OR action = 'merged' THEN quantity
-          WHEN action = 'deducted' THEN -quantity
-          ELSE 0
-        END) as total_quantity,
-        SUM(CASE
-          WHEN action = 'added' OR action = 'updated' OR action = 'merged' THEN value
-          WHEN action = 'deducted' THEN -value
-          ELSE 0
-        END) as total_value,
-        unit,
-        product_name
-      FROM inventory
-      WHERE product_id = ? AND batch IN (${placeholders})
-      GROUP BY batch, unit, product_name
-      HAVING total_quantity > 0
-    `, [product_id, ...batch_ids]);
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    if (batches.length === 0) {
+    // 1. Get all batches to merge using their batch names
+    // The frontend sends batch specific strings in batch_ids
+    const placeholders = batch_ids.map(() => '?').join(',');
+    const [sourceBatches] = await connection.execute(
+      `SELECT * FROM inventory WHERE batch IN (${placeholders}) AND product_id = ?`,
+      [...batch_ids, product_id]
+    );
+
+    if (sourceBatches.length === 0) {
+      await connection.rollback();
       return res.status(404).json({
         success: false,
-        message: 'No valid batches found to merge'
+        message: 'No batches found with the provided names'
       });
     }
 
-    // Calculate merged totals
-    const mergedQuantity = batches.reduce((sum, batch) => sum + parseFloat(batch.total_quantity), 0);
-    const mergedValue = batches.reduce((sum, batch) => sum + parseFloat(batch.total_value), 0);
-    const mergedCostPerKg = mergedQuantity > 0 ? (mergedValue / mergedQuantity) : 0;
-    const unit = batches[0].unit;
-    const productName = batches[0].product_name;
+    // 2. Calculate merged stats
+    let totalQuantity = 0;
+    let totalValue = 0;
 
-    // Create new merged batch
-    const mergedBatchName = new_batch_name || `MERGED-${product_id}-${Date.now()}`;
+    // Check if we need to auto-generate a name based on the first batch's product info
+    const firstBatch = sourceBatches[0];
+    const unit = firstBatch.unit;
+    const productName = firstBatch.product_name; // Should be consistent across same product_id
 
-    await pool.execute(`
-      INSERT INTO inventory (
-        product_id,
-        product_name,
-        batch,
-        action,
-        quantity,
-        value,
-        cost_per_kg,
-        unit,
-        status,
-        notes,
-        reference_type
-      ) VALUES (?, ?, ?, 'merged', ?, ?, ?, ?, 'active', ?, 'manual')
-    `, [
-      product_id,
-      productName,
-      mergedBatchName,
-      mergedQuantity,
-      mergedValue,
-      mergedCostPerKg,
-      unit,
-      `Merged from batches: ${batch_ids.join(', ')}`
-    ]);
+    sourceBatches.forEach(b => {
+      const qty = parseFloat(b.quantity);
+      const cost = parseFloat(b.cost_per_kg); // or b.value / b.quantity if cost_per_kg is missing
 
-    // Create history entries for old batches before removing them
-    for (const batch of batches) {
-      // Create history entry
-      await pool.execute(`
-        INSERT INTO inventory (
-          product_id,
-          product_name,
-          batch,
-          action,
-          quantity,
-          value,
-          cost_per_kg,
-          unit,
-          status,
-          notes,
-          reference_type
-        ) VALUES (?, ?, ?, 'deducted', ?, ?, ?, ?, 'inactive', ?, 'manual')
-      `, [
-        product_id,
-        productName,
-        batch.batch,
-        batch.total_quantity,
-        batch.total_value,
-        batch.total_quantity > 0 ? (batch.total_value / batch.total_quantity) : 0,
-        unit,
-        `Batch merged into: ${mergedBatchName} on ${new Date().toISOString().split('T')[0]}`
-      ]);
+      if (qty > 0) {
+        totalQuantity += qty;
+        totalValue += (qty * cost);
+      }
+    });
+
+    if (totalQuantity <= 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Total quantity of selected batches is zero'
+      });
     }
 
-    // Remove old batch records (keep only history)
-    await pool.execute(`
-      UPDATE inventory
-      SET status = 'merged', notes = CONCAT(COALESCE(notes, ''), ' - Merged into ?')
-      WHERE product_id = ? AND batch IN (${placeholders}) AND action != 'deducted'
-    `, [mergedBatchName, product_id, ...batch_ids]);
+    const mergedCostPerKg = totalValue / totalQuantity;
 
-    // Update inventory summary
-    await pool.execute(`
-      UPDATE inventory_summary
-      SET
-        average_cost_per_kg = CASE
-          WHEN total_quantity > 0 THEN total_value / total_quantity
-          ELSE 0
-        END,
+    // 3. Create new merged batch
+    // Auto-generate name if not provided
+    const mergedBatchName = new_batch_name || `MERGED-${Date.now()}`;
+
+    const [insertResult] = await connection.execute(
+      `INSERT INTO inventory 
+       (product_id, product_name, batch, quantity, unit, cost_per_kg, value, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+      [
+        product_id,
+        productName,
+        mergedBatchName,
+        totalQuantity.toFixed(4),
+        unit,
+        mergedCostPerKg.toFixed(2),
+        totalValue.toFixed(2) // Total value (qty * cost)
+      ]
+    );
+
+    const newBatchId = insertResult.insertId;
+
+    // 4. Log "Merged In" history for the new batch
+    await connection.execute(
+      `INSERT INTO inventory_history
+       (product_id, product_name, quantity, unit, action, notes, batch, cost_per_kg, value, reference_type, reference_id, created_at)
+       VALUES (?, ?, ?, ?, 'merged', ?, ?, ?, ?, 'manual', ?, NOW())`,
+      [
+        product_id,
+        productName,
+        totalQuantity.toFixed(4),
+        unit,
+        `Merged from ${sourceBatches.length} batches`,
+        mergedBatchName,
+        mergedCostPerKg.toFixed(2),
+        totalValue.toFixed(2),
+        newBatchId // Store ID of new batch as reference
+      ]
+    );
+
+    // 5. Process old batches: Log "Merged Out" history and DELETE
+    for (const batch of sourceBatches) {
+      const qty = parseFloat(batch.quantity);
+      const cost = parseFloat(batch.cost_per_kg);
+      const val = qty * cost;
+
+      // Log history
+      await connection.execute(
+        `INSERT INTO inventory_history
+         (product_id, product_name, quantity, unit, action, notes, batch, cost_per_kg, value, reference_type, reference_id, created_at)
+         VALUES (?, ?, ?, ?, 'merged', ?, ?, ?, ?, 'manual', ?, NOW())`,
+        [
+          product_id,
+          productName,
+          -qty, // Negative for deduction
+          unit,
+          `Merged into ${mergedBatchName}`,
+          batch.batch,
+          cost,
+          -val, // Negative value
+          batch.id // Store ID of old batch
+        ]
+      );
+
+      // DELETE old batch
+      await connection.execute(
+        `DELETE FROM inventory WHERE id = ?`,
+        [batch.id]
+      );
+    }
+
+    // 6. Update Summary
+    // This is optional if we rely on the live summary query, but good for caching
+    // Ensure we only sum active batches
+    await connection.execute(`
+      INSERT INTO inventory_summary (product_id, product_name, total_quantity, total_value, average_cost_per_kg, unit)
+      SELECT 
+        product_id,
+        MAX(product_name),
+        SUM(quantity),
+        SUM(quantity * cost_per_kg),
+        SUM(quantity * cost_per_kg) / NULLIF(SUM(quantity), 0),
+        MAX(unit)
+      FROM inventory
+      WHERE product_id = ? AND quantity > 0
+      GROUP BY product_id
+      ON DUPLICATE KEY UPDATE
+        total_quantity = VALUES(total_quantity),
+        total_value = VALUES(total_value),
+        average_cost_per_kg = VALUES(average_cost_per_kg),
         last_updated = CURRENT_TIMESTAMP
-      WHERE product_id = ?
     `, [product_id]);
+
+    await connection.commit();
 
     res.json({
       success: true,
       message: 'Batches merged successfully',
-      merged_batch: mergedBatchName,
-      merged_quantity: mergedQuantity,
-      merged_value: mergedValue
+      merged_batch: {
+        id: newBatchId,
+        batch: mergedBatchName,
+        quantity: totalQuantity,
+        cost_per_kg: mergedCostPerKg
+      }
     });
+
   } catch (error) {
+    if (connection) await connection.rollback();
     console.error('Error merging batches:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to merge batches',
       error: error.message
     });
+  } finally {
+    if (connection) connection.release();
   }
 };
 
