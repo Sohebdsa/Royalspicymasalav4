@@ -26,7 +26,8 @@ export default function BatchSelectionDialog({
   product,
   availableBatches,
   currentAllocations,
-  onBatchSelection
+  onBatchSelection,
+  preAllocatedQuantities = {}
 }) {
   const { showError, showSuccess } = useToast();
   const [selectedAllocations, setSelectedAllocations] = useState([]);
@@ -66,7 +67,9 @@ export default function BatchSelectionDialog({
     (batchId, qty) => {
       const batchInfo = availableBatches?.find(b => b.batch === batchId);
       if (!batchInfo) return;
-      const clamped = Math.min(Math.max(qty, 0), parseFloat(batchInfo.totalQuantity));
+      const preAllocated = preAllocatedQuantities[batchId] || 0;
+      const effectiveTotal = Math.max(0, parseFloat(batchInfo.totalQuantity) - preAllocated);
+      const clamped = Math.min(Math.max(qty, 0), effectiveTotal);
       setSelectedAllocations(prev => {
         const idx = prev.findIndex(a => a.batch === batchId);
         if (clamped <= 0) {
@@ -92,7 +95,8 @@ export default function BatchSelectionDialog({
   const selectAllForBatch = useCallback((batchId) => {
     const batchInfo = availableBatches?.find(b => b.batch === batchId);
     if (!batchInfo) return;
-    const maxAvail = parseFloat(batchInfo.totalQuantity);
+    const preAllocated = preAllocatedQuantities[batchId] || 0;
+    const maxAvail = Math.max(0, parseFloat(batchInfo.totalQuantity) - preAllocated);
     const currentlySelected = selectedAllocations.find(a => a.batch === batchId)?.quantity || 0;
     updateBatchQty(batchId, Math.min(maxAvail, remaining + currentlySelected));
   }, [availableBatches, selectedAllocations, remaining, updateBatchQty]);
@@ -119,11 +123,11 @@ export default function BatchSelectionDialog({
     });
 
     showSuccess('Batches selected');
-    
+
     // Reset state after successful save
     hasInitialized.current = false;
     lastProductId.current = null;
-    
+
     onClose();
   }, [product, selectedAllocations, totalSelectedQuantity, onBatchSelection, showSuccess, showError, onClose]);
 
@@ -194,16 +198,49 @@ export default function BatchSelectionDialog({
                   {availableBatches.map((b, i) => {
                     const sel = selectedAllocations.find(a => a.batch === b.batch);
                     const selQty = sel ? sel.quantity : 0;
-                    const canMore = selQty < parseFloat(b.totalQuantity) && remaining > 0;
+                    const preAllocated = preAllocatedQuantities[b.batch] || 0;
+                    const totalQty = parseFloat(b.totalQuantity);
+                    const effectiveTotal = Math.max(0, totalQty - preAllocated);
+
+                    const canMore = selQty < effectiveTotal && remaining > 0;
+
+                    // Meter Logic
+                    const totalUsed = preAllocated + (selQty || 0);
+                    const percentUsed = totalQty > 0 ? (totalUsed / totalQty) * 100 : 0;
+                    let meterColor = 'bg-blue-600';
+                    if (percentUsed > 80) meterColor = 'bg-orange-500';
+                    if (percentUsed >= 99) meterColor = 'bg-red-600';
+
                     return (
                       <tr key={i} className={selQty > 0 ? 'bg-green-50' : ''}>
                         <td className="px-4 py-3 font-mono">{b.batch}</td>
-                        <td className="px-4 py-3">{parseFloat(b.totalQuantity).toFixed(3)} {b.unit}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <div className="text-sm">
+                              <span className={effectiveTotal < 0.001 ? "text-red-500 font-medium" : ""}>
+                                {effectiveTotal.toFixed(3)}
+                              </span>
+                              <span className="text-gray-500"> / {totalQty.toFixed(3)} {b.unit}</span>
+                            </div>
+                            {preAllocated > 0 && (
+                              <div className="text-xs text-orange-600">
+                                {preAllocated.toFixed(3)} used in other items
+                              </div>
+                            )}
+                            {/* Meter */}
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${meterColor}`}
+                                style={{ width: `${Math.min(percentUsed, 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <QuantityInput
                             value={selQty}
                             onChange={q => updateBatchQty(b.batch, q)}
-                            maxQuantity={Math.min(parseFloat(b.totalQuantity), remaining + selQty)}
+                            maxQuantity={Math.min(effectiveTotal, remaining + selQty)}
                             unit={b.unit}
                           />
                         </td>

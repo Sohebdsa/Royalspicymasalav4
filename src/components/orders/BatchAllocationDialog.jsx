@@ -51,11 +51,11 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
 
   // Memoize order prop to prevent unnecessary re-renders
   const memoizedOrder = useMemo(() => order, [order?.id, JSON.stringify(order)]);
-  
+
   // Preserve allocations between re-renders when the same order is opened
   const prevOrderRef = useRef(memoizedOrder?.id);
   const prevAllocationsRef = useRef(allocations);
-  
+
   useEffect(() => {
     if (memoizedOrder?.id && memoizedOrder.id === prevOrderRef.current) {
       // Same order, restore previous allocations
@@ -125,19 +125,19 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
   // Combined data fetching with proper debouncing and duplicate prevention
   useEffect(() => {
     if (!isOpen || !memoizedOrder?.id) return;
-    
+
     // Prevent duplicate fetches for the same order
     if (fetchedRef.current === memoizedOrder.id) return;
-    
+
     let abort = false;
     let isLoading = false;
-    
+
     const fetchAllData = async () => {
       if (isLoading) return;
       isLoading = true;
       setLoading(true);
       fetchedRef.current = memoizedOrder.id;
-      
+
       try {
         // Only fetch order details if we don't have complete order data
         if (!orderData?.items?.length && memoizedOrder.id) {
@@ -147,7 +147,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
             setOrderData(data);
           }
         }
-        
+
         // Fetch allocations
         const allocRes = await fetch(`http://localhost:5000/api/orders/${memoizedOrder.id}/allocations`);
         const { success: allocSuccess, data: allocData } = await allocRes.json();
@@ -160,10 +160,10 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           });
           setAllocations(grouped);
         }
-        
+
         // Fetch available batches - this will run after orderData is set
         // We'll handle this in a separate effect below
-        
+
       } catch (error) {
         console.error('Error fetching batch allocation data:', error);
         showError('Failed to load allocation data');
@@ -172,10 +172,10 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
         setLoading(false);
       }
     };
-    
+
     // Debounce the fetch to prevent rapid calls
     const timeoutId = setTimeout(fetchAllData, 300);
-    
+
     return () => {
       abort = true;
       clearTimeout(timeoutId);
@@ -185,14 +185,14 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
   // Separate effect for fetching batches after we have items
   useEffect(() => {
     if (!itemsNeedingAllocation.length || !isOpen) return;
-    
+
     let abort = false;
-    
+
     const fetchBatches = async () => {
       try {
         const all = {};
         const pids = [...new Set(itemsNeedingAllocation.map(i => i.product_id))];
-        
+
         // Use Promise.all for concurrent batch fetching with better error handling
         const batchPromises = pids.map(async (pid) => {
           try {
@@ -216,7 +216,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
             all[pid] = [];
           }
         });
-        
+
         await Promise.all(batchPromises);
         if (!abort) {
           setAvailableBatches(all);
@@ -226,9 +226,9 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
         console.error('Error fetching batches:', error);
       }
     };
-    
+
     fetchBatches();
-    
+
     return () => {
       abort = true;
     };
@@ -263,12 +263,33 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
   }, []);
 
   const openBatchSelection = useCallback(product => {
+    const preAllocated = {};
+    const currentPid = parseInt(product.product_id);
+    const currentItemId = product.order_item_id.toString();
+
+    // Iterate over all items to find others with the same product ID
+    itemsNeedingAllocation.forEach(item => {
+      const itemPid = parseInt(item.product_id);
+      const itemId = item.order_item_id.toString();
+
+      // If it's the same product but NOT the current item we are editing
+      if (itemPid === currentPid && itemId !== currentItemId) {
+        const itemAllocs = allocations[itemId] || [];
+        itemAllocs.forEach(alloc => {
+          if (alloc.batch) {
+            preAllocated[alloc.batch] = (preAllocated[alloc.batch] || 0) + (parseFloat(alloc.quantity) || 0);
+          }
+        });
+      }
+    });
+
     setBatchSelectionDialog({
       isOpen: true,
       product,
-      currentAllocations: allocations[product.order_item_id] || []
+      currentAllocations: allocations[product.order_item_id] || [],
+      preAllocatedQuantities: preAllocated
     });
-  }, [allocations]);
+  }, [allocations, itemsNeedingAllocation]);
 
   const handleSave = useThrottleCallback(async () => {
     try {
@@ -290,7 +311,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
       showSuccess('Allocations saved');
-      
+
       // Show loading spinner for 2 seconds before closing dialog
       setTimeout(() => {
         setLoading(false);
@@ -322,7 +343,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
 
   return (
     <>
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose(false)}>
+      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose(false)}>
         <DialogContent className="max-w-6xl w-[95vw] max-h-[90vh] p-0 flex flex-col">
           <DialogHeader className="space-y-3 p-6 pb-4 border-b border-gray-200">
             <DialogTitle className="flex items-center gap-3 text-xl">
@@ -348,9 +369,8 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
               {groupedItems.map((group, idx) => (
                 <div key={idx}>
                   <div className="mb-6">
-                    <h3 className={`text-lg font-semibold mb-4 flex items-center gap-2 ${
-                      group.type === 'regular' ? 'text-blue-800' : 'text-orange-800'
-                    }`}>
+                    <h3 className={`text-lg font-semibold mb-4 flex items-center gap-2 ${group.type === 'regular' ? 'text-blue-800' : 'text-orange-800'
+                      }`}>
                       {group.type === 'regular' ? (
                         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -397,11 +417,10 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <div className={`text-sm px-3 py-1 rounded-full flex items-center gap-2 ${
-                                isFully
-                                  ? 'text-green-700 bg-green-100'
-                                  : 'text-orange-600 bg-orange-100'
-                              }`}>
+                              <div className={`text-sm px-3 py-1 rounded-full flex items-center gap-2 ${isFully
+                                ? 'text-green-700 bg-green-100'
+                                : 'text-orange-600 bg-orange-100'
+                                }`}>
                                 {isFully
                                   ? (<><svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -415,7 +434,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
                                 className={`${isFully
                                   ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
                                   : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                                }`}
+                                  }`}
                               >
                                 {isFully ? 'Edit Batches' : 'Select Batches'}
                               </Button>
@@ -493,6 +512,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           availableBatches={availableBatches[batchSelectionDialog.product.product_id] || []}
           currentAllocations={batchSelectionDialog.currentAllocations}
           onBatchSelection={handleBatchSelection}
+          preAllocatedQuantities={batchSelectionDialog.preAllocatedQuantities || {}}
         />
       )}
     </>

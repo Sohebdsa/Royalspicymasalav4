@@ -281,8 +281,25 @@ const CatererSellComponent = () => {
         const batches = response.data.map(b => ({
           batch: b.batch || b.batch_id,
           totalQuantity: parseFloat(b.total_quantity || b.quantity || 0),
-          unit: b.unit || 'kg'
+          unit: b.unit || 'kg',
+          expiry_date: b.expiry_date
         })).filter(b => b.batch && b.totalQuantity > 0);
+
+        // Calculate quantity already used in this session (other items in the bill)
+        const preAllocated = {};
+        sellData.items.forEach(item => {
+          // Check if it's the same product (consider mix items too if they track batches)
+          const itemId = item.product_id ? parseInt(item.product_id) : null;
+          const currentId = parseInt(currentItem.product_id);
+
+          if (itemId === currentId && Array.isArray(item.batches)) {
+            item.batches.forEach(b => {
+              if (b.batch) {
+                preAllocated[b.batch] = (preAllocated[b.batch] || 0) + (parseFloat(b.quantity) || 0);
+              }
+            });
+          }
+        });
 
         setBatchSelectionDialog({
           isOpen: true,
@@ -293,7 +310,8 @@ const CatererSellComponent = () => {
             gst: selectedProduct.gst || 0,
             unit: selectedProduct.unit || 'kg'
           },
-          availableBatches: batches
+          availableBatches: batches,
+          preAllocatedQuantities: preAllocated
         });
       } else {
         showError('No batches available for this product');
@@ -305,21 +323,49 @@ const CatererSellComponent = () => {
   };
 
   const handleBatchSelection = (selectedItem) => {
-    // Extract batch information for database storage
-    const itemWithBatchInfo = {
-      ...selectedItem,
-      // Extract batch information from the batches array
-      batch_number: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].batch : null,
-      expiry_date: selectedItem.batches && selectedItem.batches.length > 0 ? selectedItem.batches[0].expiry_date : null
-    };
+    // If multiple batches are selected, create separate line items for each batch
+    if (selectedItem.batches && selectedItem.batches.length > 0) {
+      const newItems = selectedItem.batches.map(batchAlloc => {
+        // Calculate proportional costs
+        const qty = parseFloat(batchAlloc.quantity);
+        const rate = parseFloat(selectedItem.rate);
+        const gstPercent = parseFloat(selectedItem.gst);
 
-    // Add new item as a separate entry (no merging logic)
-    setSellData(prev => ({
-      ...prev,
-      items: [...prev.items, itemWithBatchInfo]
-    }));
+        const subtotal = qty * rate;
+        const gstAmount = (subtotal * gstPercent) / 100;
+        const total = subtotal + gstAmount;
 
-    // showSuccess('Item added successfully');
+        return {
+          ...selectedItem,
+          quantity: qty,
+          subtotal: subtotal,
+          gst_amount: gstAmount,
+          total: total,
+          // Explicitly set single batch info for this item
+          batch_number: batchAlloc.batch,
+          expiry_date: batchAlloc.expiry_date || null,
+          // Clear the batches array to avoid recursion/confusion
+          batches: [batchAlloc]
+        };
+      });
+
+      setSellData(prev => ({
+        ...prev,
+        items: [...prev.items, ...newItems]
+      }));
+    } else {
+      // Fallback for no batches (shouldn't happen with valid selection)
+      const itemWithBatchInfo = {
+        ...selectedItem,
+        batch_number: null,
+        expiry_date: null
+      };
+
+      setSellData(prev => ({
+        ...prev,
+        items: [...prev.items, itemWithBatchInfo]
+      }));
+    }
 
     // Reset current item
     setCurrentItem({
@@ -1723,6 +1769,7 @@ const CatererSellComponent = () => {
           availableBatches={batchSelectionDialog.availableBatches ?? []}
           onBatchSelection={handleBatchSelection}
           initialQuantity={currentItem.quantity}
+          preAllocatedQuantities={batchSelectionDialog.preAllocatedQuantities || {}}
         />
       )}
 

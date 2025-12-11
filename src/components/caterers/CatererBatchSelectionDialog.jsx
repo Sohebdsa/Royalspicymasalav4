@@ -27,7 +27,8 @@ export default function CatererBatchSelectionDialog({
   product,
   availableBatches,
   onBatchSelection,
-  initialQuantity = ''
+  initialQuantity = '',
+  preAllocatedQuantities = {}
 }) {
   const { showError, showSuccess } = useToast();
   const [selectedAllocations, setSelectedAllocations] = useState([]);
@@ -56,7 +57,9 @@ export default function CatererBatchSelectionDialog({
     (batchId, qty) => {
       const batchInfo = availableBatches?.find(b => b.batch === batchId);
       if (!batchInfo) return;
-      const clamped = Math.min(Math.max(qty, 0), parseFloat(batchInfo.totalQuantity));
+      const preAllocated = preAllocatedQuantities[batchId] || 0;
+      const effectiveTotal = Math.max(0, parseFloat(batchInfo.totalQuantity) - preAllocated);
+      const clamped = Math.min(Math.max(qty, 0), effectiveTotal);
       setSelectedAllocations(prev => {
         const idx = prev.findIndex(a => a.batch === batchId);
         if (clamped <= 0) {
@@ -87,60 +90,70 @@ export default function CatererBatchSelectionDialog({
   const selectBatch = useCallback((batchId) => {
     const batchInfo = availableBatches?.find(b => b.batch === batchId);
     if (!batchInfo) return;
-    
+
     const requiredQuantity = parseFloat(quantity) || 0;
     const currentlySelected = selectedAllocations.find(a => a.batch === batchId)?.quantity || 0;
     const totalSelected = totalSelectedQuantity - currentlySelected; // Exclude current batch from total
     const remaining = Math.max(0, requiredQuantity - totalSelected);
-    
+
     // If this batch has enough quantity to fulfill the remaining requirement, select only what's needed
-    if (parseFloat(batchInfo.totalQuantity) >= remaining) {
+    const batchTotal = parseFloat(batchInfo.totalQuantity);
+    const preAllocated = preAllocatedQuantities[batchId] || 0;
+    const effectiveTotal = Math.max(0, batchTotal - preAllocated);
+
+    if (effectiveTotal >= remaining) {
       updateBatchQty(batchId, remaining);
     } else {
       // If this batch doesn't have enough, select the entire batch and continue with other batches
-      updateBatchQty(batchId, parseFloat(batchInfo.totalQuantity));
-      
+      updateBatchQty(batchId, effectiveTotal);
+
       // If there are still batches available and we still need more quantity, select from the next available batch
-      if (remaining > parseFloat(batchInfo.totalQuantity) && availableBatches.length > 1) {
+      if (remaining > effectiveTotal && availableBatches.length > 1) {
         const nextBatch = availableBatches.find(b => b.batch !== batchId && !selectedAllocations.find(a => a.batch === b.batch));
         if (nextBatch) {
-          const newRemaining = remaining - parseFloat(batchInfo.totalQuantity);
-          if (parseFloat(nextBatch.totalQuantity) >= newRemaining) {
+          const newRemaining = remaining - effectiveTotal;
+          const nextPreAllocated = preAllocatedQuantities[nextBatch.batch] || 0;
+          const nextEffectiveTotal = Math.max(0, parseFloat(nextBatch.totalQuantity) - nextPreAllocated);
+
+          if (nextEffectiveTotal >= newRemaining) {
             updateBatchQty(nextBatch.batch, newRemaining);
           } else {
-            updateBatchQty(nextBatch.batch, parseFloat(nextBatch.totalQuantity));
+            updateBatchQty(nextBatch.batch, nextEffectiveTotal);
           }
         }
       }
     }
-  }, [availableBatches, selectedAllocations, quantity, totalSelectedQuantity, updateBatchQty]);
+  }, [availableBatches, selectedAllocations, quantity, totalSelectedQuantity, updateBatchQty, preAllocatedQuantities]);
 
   const selectOptimalBatchAllocation = useCallback(() => {
     const requiredQuantity = parseFloat(quantity) || 0;
     if (requiredQuantity <= 0) return;
-    
+
     // Clear existing selections
     setSelectedAllocations([]);
-    
+
     let remaining = requiredQuantity;
     const availableBatchesCopy = [...(availableBatches || [])];
-    
+
     // Sort batches by quantity (largest first) to minimize the number of batches used
     availableBatchesCopy.sort((a, b) => parseFloat(b.totalQuantity) - parseFloat(a.totalQuantity));
-    
+
     // Select from batches until we fulfill the requirement
     for (const batch of availableBatchesCopy) {
       if (remaining <= 0) break;
-      
+
       const batchQuantity = parseFloat(batch.totalQuantity);
-      const quantityToSelect = Math.min(batchQuantity, remaining);
-      
+      const preAllocated = preAllocatedQuantities[batch.batch] || 0;
+      const effectiveAvailable = Math.max(0, batchQuantity - preAllocated);
+
+      const quantityToSelect = Math.min(effectiveAvailable, remaining);
+
       if (quantityToSelect > 0) {
         updateBatchQty(batch.batch, quantityToSelect);
         remaining -= quantityToSelect;
       }
     }
-  }, [quantity, availableBatches, updateBatchQty]);
+  }, [quantity, availableBatches, updateBatchQty, preAllocatedQuantities]);
 
   const clearBatch = useCallback((batchId) => {
     setSelectedAllocations(prev => prev.filter(a => a.batch !== batchId));
@@ -280,7 +293,7 @@ export default function CatererBatchSelectionDialog({
             </div>
             <div>
               <span className="font-medium">Selected:</span>
-              <span className={`ml-2 ${totalSelectedQuantity >= (parseFloat(quantity) || 0) ? 'text-green-600' : 'text-orange-600'}`}>
+              <span className={`ml-2 ${totalSelectedQuantity >= (parseFloat(quantity).toFixed(3) || 0) ? 'text-green-600' : 'text-orange-600'}`}>
                 {totalSelectedQuantity.toFixed(3)} {product.unit}
               </span>
             </div>
@@ -325,18 +338,31 @@ export default function CatererBatchSelectionDialog({
                   {availableBatches.map((b, i) => {
                     const sel = selectedAllocations.find(a => a.batch === b.batch);
                     const selQty = sel ? sel.quantity : 0;
+                    const preAllocated = preAllocatedQuantities[b.batch] || 0;
+                    const totalQty = parseFloat(b.totalQuantity);
+                    const effectiveTotal = Math.max(0, totalQty - preAllocated);
+
                     const requiredQuantity = parseFloat(quantity) || 0;
                     const remaining = Math.max(0, requiredQuantity - totalSelectedQuantity);
                     // For mix products, allow selection if there's still quantity needed
-                    const canMore = selQty < parseFloat(b.totalQuantity) && remaining > 0;
-                    
+                    const canMore = selQty < effectiveTotal && remaining > 0;
+
+                    // Logic for meter
+                    const totalUsed = preAllocated + (selQty || 0);
+                    const percentUsed = totalQty > 0 ? (totalUsed / totalQty) * 100 : 0;
+                    const isFullyExhausted = totalUsed >= totalQty - 0.001;
+
                     // Calculate days until expiry for color coding
                     const expiryDate = b.expiry_date ? new Date(b.expiry_date) : null;
                     const now = new Date();
                     const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24)) : null;
                     const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 30;
                     const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
-                    
+
+                    let meterColor = 'bg-blue-600';
+                    if (percentUsed > 80) meterColor = 'bg-orange-500';
+                    if (percentUsed >= 99) meterColor = 'bg-red-600';
+
                     return (
                       <tr key={i} className={`${selQty > 0 ? 'bg-green-50' : ''} ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : ''}`}>
                         <td className="px-4 py-3 font-mono">{b.batch}</td>
@@ -356,12 +382,33 @@ export default function CatererBatchSelectionDialog({
                             <span className="text-gray-400 text-sm">No expiry</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">{parseFloat(b.totalQuantity).toFixed(3)} {b.unit}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <div className="text-sm">
+                              <span className={effectiveTotal < 0.001 ? "text-red-500 font-medium" : ""}>
+                                {effectiveTotal.toFixed(3)}
+                              </span>
+                              <span className="text-gray-500"> / {totalQty.toFixed(3)} {b.unit}</span>
+                            </div>
+                            {preAllocated > 0 && (
+                              <div className="text-xs text-orange-600">
+                                {preAllocated.toFixed(3)} used in this bill
+                              </div>
+                            )}
+                            {/* Meter */}
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${meterColor}`}
+                                style={{ width: `${Math.min(percentUsed, 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <QuantityInput
                             value={selQty}
                             onChange={q => updateBatchQty(b.batch, q)}
-                            maxQuantity={Math.min(parseFloat(b.totalQuantity), remaining + selQty)}
+                            maxQuantity={Math.min(effectiveTotal, remaining + selQty)}
                             unit={b.unit}
                           />
                         </td>

@@ -9,11 +9,10 @@ import CatererCard from '../../components/caterers/CatererCard';
 const TabButton = ({ id, label, icon: Icon, isActive, onClick }) => (
   <button
     onClick={() => onClick(id)}
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-      isActive
-        ? 'bg-orange-100 text-orange-700 border border-orange-200'
-        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-    }`}
+    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive
+      ? 'bg-orange-100 text-orange-700 border border-orange-200'
+      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+      }`}
   >
     <Icon className="h-4 w-4 mr-2" />
     {label}
@@ -85,14 +84,14 @@ const CaterersPage = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await fetch(`${API_BASE_URL}/caterers`);
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.message || 'Failed to fetch caterers');
       }
-      
+
       if (data.success) {
         setCaterers(data.caterers || []);
       } else {
@@ -155,13 +154,13 @@ const CaterersPage = () => {
       const response = await fetch(`${API_BASE_URL}/caterers/${caterer.id}`, {
         method: 'DELETE',
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.message || 'Failed to delete caterer');
       }
-      
+
       if (data.success) {
         setCaterers(prev => prev.filter(c => c.id !== caterer.id));
         showSuccess('Caterer deleted successfully');
@@ -223,8 +222,8 @@ const CaterersPage = () => {
   const pendingCount = caterers.filter(c => c.balance_due && parseFloat(c.balance_due) > 0).length;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="bg-gray-50 p-6">
+      <div className="max-w-7xl">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
           <div className="mb-4 sm:mb-0">
@@ -340,8 +339,8 @@ const CaterersPage = () => {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {filteredCaterers.map(caterer => (
-                      <CatererCard 
-                        key={caterer.id} 
+                      <CatererCard
+                        key={caterer.id}
                         caterer={caterer}
                         onEdit={handleEditCaterer}
                         onDelete={handleDeleteCaterer}
@@ -364,8 +363,8 @@ const CaterersPage = () => {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {filteredCaterers.map(caterer => (
-                      <CatererCard 
-                        key={caterer.id} 
+                      <CatererCard
+                        key={caterer.id}
                         caterer={caterer}
                         onEdit={handleEditCaterer}
                         onDelete={handleDeleteCaterer}
@@ -381,10 +380,10 @@ const CaterersPage = () => {
         )}
 
         {/* Add Caterer Dialog */}
-        <AddCatererDialog 
-          isOpen={showAddDialog} 
-          onClose={handleCloseAddDialog} 
-          onCatererAdded={handleCatererAdded} 
+        <AddCatererDialog
+          isOpen={showAddDialog}
+          onClose={handleCloseAddDialog}
+          onCatererAdded={handleCatererAdded}
         />
 
         {/* Edit Caterer Dialog */}

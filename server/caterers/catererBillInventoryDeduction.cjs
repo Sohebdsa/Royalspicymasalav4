@@ -357,15 +357,29 @@ const processRegularProductDeduction = async (connection, item, saleId) => {
   console.log(`   🔧 Updating inventory ${inventoryItem.inventory_id}...`);
   console.log(`      ${availableQuantity} → ${newQuantity}`);
 
-  const [updateResult] = await connection.execute(
-    `UPDATE inventory
-     SET quantity = ?, updated_at = NOW()
-     WHERE id = ?`,
-    [newQuantity.toFixed(3), inventoryItem.inventory_id]
-  );
+  if (newQuantity <= 0.001) {
+    // Quality is effectively zero, remove the batch entry
+    console.log(`   🗑️  Quantity exhausted (remaining: ${newQuantity.toFixed(4)}), removing inventory batch...`);
+    const [deleteResult] = await connection.execute(
+      `DELETE FROM inventory WHERE id = ?`,
+      [inventoryItem.inventory_id]
+    );
+    if (deleteResult.affectedRows === 0) {
+      throw new Error(`Failed to delete exhausted inventory ${inventoryItem.inventory_id}`);
+    }
+    console.log(`   ✅ Inventory batch removed`);
+  } else {
+    // Update with new quantity
+    const [updateResult] = await connection.execute(
+      `UPDATE inventory
+       SET quantity = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [newQuantity.toFixed(3), inventoryItem.inventory_id]
+    );
 
-  if (updateResult.affectedRows === 0) {
-    throw new Error(`Failed to update inventory ${inventoryItem.inventory_id}`);
+    if (updateResult.affectedRows === 0) {
+      throw new Error(`Failed to update inventory ${inventoryItem.inventory_id}`);
+    }
   }
 
   console.log(`   ✅ Deducted ${quantityToDeduct}. New: ${newQuantity.toFixed(3)}`);
